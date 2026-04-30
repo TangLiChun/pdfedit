@@ -45,7 +45,7 @@ export default function PdfViewer({
   textEdits,
 }: PdfViewerProps) {
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null)
-  const fabricCanvasElRef = useRef<HTMLCanvasElement>(null)
+  const fabricContainerRef = useRef<HTMLDivElement>(null)
   const fabricCanvasRef = useRef<Canvas | null>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(false)
@@ -56,7 +56,7 @@ export default function PdfViewer({
   const currentPathRef = useRef<any>(null)
 
   const getCanvasPoint = useCallback((nativeEvt: MouseEvent): { x: number; y: number } | null => {
-    const el = fabricCanvasElRef.current
+    const el = fabricContainerRef.current
     if (!el) return null
     const rect = el.getBoundingClientRect()
     return {
@@ -165,7 +165,7 @@ export default function PdfViewer({
 
   // Initialize Fabric canvas
   useEffect(() => {
-    if (!fabricCanvasElRef.current || pageSize.width === 0 || editMode !== 'annotate') return
+    if (!fabricContainerRef.current || pageSize.width === 0 || editMode !== 'annotate') return
 
     if (fabricCanvasRef.current) {
       Promise.resolve(fabricCanvasRef.current.dispose()).catch(() => {})
@@ -174,12 +174,11 @@ export default function PdfViewer({
 
     let fabricCanvas: Canvas
     try {
-      fabricCanvas = new Canvas(fabricCanvasElRef.current, {
+      fabricCanvas = new Canvas(fabricContainerRef.current as any, {
         width: pageSize.width,
         height: pageSize.height,
         selection: activeTool === 'select',
         backgroundColor: 'transparent',
-        enablePointerEvents: false,
       })
     } catch (err) {
       console.error('Fabric canvas init failed:', err)
@@ -373,8 +372,8 @@ export default function PdfViewer({
         )}
         <canvas ref={pdfCanvasRef} className="block" />
         {editMode === 'annotate' && pageSize.width > 0 && (
-          <canvas
-            ref={fabricCanvasElRef}
+          <div
+            ref={fabricContainerRef}
             className="absolute top-0 left-0 z-10"
             style={{ width: pageSize.width, height: pageSize.height }}
           />
