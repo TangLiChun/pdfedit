@@ -1,0 +1,324 @@
+import { useState, useRef, useCallback } from 'react'
+import * as pdfjsLib from 'pdfjs-dist'
+import { PDFDocument, degrees, rgb } from 'pdf-lib'
+import PdfViewer from './components/PdfViewer'
+import Toolbar from './components/Toolbar'
+import FormPanel from './components/FormPanel'
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+
+export interface AnnotationData {
+  id: string
+  fabricJson: any
+}
+
+export interface TextEditData {
+  id: string
+  originalText: string
+  newText: string
+  x: number
+  y: number
+  fontSize: number
+  page: number
+}
+
+export interface FormFieldData {
+  name: string
+  type: string
+  value: string
+}
+
+export default function App() {
+  // Main PDF (homework)
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
+  const [pdfDocProxy, setPdfDocProxy] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
+  const [pdfLibDoc, setPdfLibDoc] = useState<PDFDocument | null>(null)
+  const [numPages, setNumPages] = useState(0)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [scale, setScale] = useState(1.5)
+
+  // Answer PDF
+  const [answerPdfDocProxy, setAnswerPdfDocProxy] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
+  const [answerNumPages, setAnswerNumPages] = useState(0)
+
+  const [gradeMode, setGradeMode] = useState(false)
+  const [editMode, setEditMode] = useState<'view' | 'annotate' | 'form' | 'text'>('view')
+  const [activeTool, setActiveTool] = useState<'select' | 'rect' | 'arrow' | 'text' | 'brush'>('select')
+  const [color, setColor] = useState('#ff0000')
+  const [pageAnnotations, setPageAnnotations] = useState<Record<number, AnnotationData[]>>({})
+  const [textEdits, setTextEdits] = useState<Record<number, TextEditData[]>>({})
+  const [formFields, setFormFields] = useState<FormFieldData[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const answerInputRef = useRef<HTMLInputElement>(null)
+
+  const loadPdf = useCallback(async (bytes: Uint8Array) => {
+    setPdfBytes(bytes)
+    const bytesCopy = new Uint8Array(bytes)
+
+    const loadingTask = pdfjsLib.getDocument({ data: bytes })
+    const pdf = await loadingTask.promise
+    setPdfDocProxy(pdf)
+
+    const libDoc = await PDFDocument.load(bytesCopy)
+    setPdfLibDoc(libDoc)
+    setNumPages(pdf.numPages)
+    setCurrentPage(1)
+
+    try {
+      const form = libDoc.getForm()
+      const fields = form.getFields()
+      setFormFields(fields.map(f => ({
+        name: f.getName(),
+        type: f.constructor.name.replace('PDF', '').replace('Field', ''),
+        value: '',
+      })))
+    } catch {
+      setFormFields([])
+    }
+  }, [])
+
+  const loadAnswerPdf = useCallback(async (bytes: Uint8Array) => {
+    const loadingTask = pdfjsLib.getDocument({ data: bytes })
+    const pdf = await loadingTask.promise
+    setAnswerPdfDocProxy(pdf)
+    setAnswerNumPages(pdf.numPages)
+  }, [])
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    setPageAnnotations({})
+    setTextEdits({})
+    await loadPdf(bytes)
+  }, [loadPdf])
+
+  const handleAnswerFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    await loadAnswerPdf(bytes)
+  }, [loadAnswerPdf])
+
+  const handleRotatePage = useCallback(async () => {
+    if (!pdfLibDoc || !pdfBytes) return
+    const pages = pdfLibDoc.getPages()
+    const page = pages[currentPage - 1]
+    const currentRotation = page.getRotation().angle
+    page.setRotation(degrees(currentRotation + 90))
+    const bytes = await pdfLibDoc.save()
+    await loadPdf(bytes)
+  }, [pdfLibDoc, pdfBytes, currentPage, loadPdf])
+
+  const handleDeletePage = useCallback(async () => {
+    if (!pdfLibDoc || !pdfBytes || numPages <= 1) return
+    pdfLibDoc.removePage(currentPage - 1)
+    const bytes = await pdfLibDoc.save()
+    await loadPdf(bytes)
+  }, [pdfLibDoc, pdfBytes, currentPage, numPages, loadPdf])
+
+  const handleDownload = useCallback(async () => {
+    if (!pdfBytes || !pdfLibDoc) return
+
+    const finalDoc = await PDFDocument.load(pdfBytes.slice())
+
+    try {
+      const form = finalDoc.getForm()
+      formFields.forEach(field => {
+        try {
+          const f = form.getField(field.name)
+          if (field.type === 'Text' && 'setText' in f) {
+            (f as any).setText(field.value)
+          }
+        } catch { /* ignore */ }
+      })
+    } catch { /* no form */ }
+
+    Object.entries(textEdits).forEach(([pageNum, edits]) => {
+      const pageIndex = parseInt(pageNum) - 1
+      const page = finalDoc.getPage(pageIndex)
+      const { height } = page.getSize()
+      edits.forEach(edit => {
+        page.drawRectangle({
+          x: edit.x,
+          y: height - edit.y - edit.fontSize,
+          width: edit.originalText.length * edit.fontSize * 0.6,
+          height: edit.fontSize * 1.2,
+          color: rgb(1, 1, 1),
+        })
+        page.drawText(edit.newText, {
+          x: edit.x,
+          y: height - edit.y,
+          size: edit.fontSize,
+          color: rgb(0, 0, 0),
+        })
+      })
+    })
+
+    Object.entries(pageAnnotations).forEach(([pageNum, anns]) => {
+      const pageIndex = parseInt(pageNum) - 1
+      const page = finalDoc.getPage(pageIndex)
+      const { height } = page.getSize()
+      anns.forEach(ann => {
+        const json = ann.fabricJson
+        if (json.type === 'rect') {
+          page.drawRectangle({
+            x: json.left,
+            y: height - json.top - json.height,
+            width: json.width,
+            height: json.height,
+            color: rgb(1, 1, 0),
+            opacity: 0.3,
+          })
+        } else if (json.type === 'i-text') {
+          page.drawText(json.text, {
+            x: json.left,
+            y: height - json.top,
+            size: json.fontSize,
+            color: rgb(1, 0, 0),
+          })
+        }
+      })
+    })
+
+    const bytes = await finalDoc.save()
+    const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'edited.pdf'
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [pdfBytes, pdfLibDoc, formFields, textEdits, pageAnnotations])
+
+  const handleTextEdit = useCallback((page: number, id: string, originalText: string, newText: string, x: number, y: number, fontSize: number) => {
+    setTextEdits(prev => ({
+      ...prev,
+      [page]: [
+        ...(prev[page] || []).filter(e => e.id !== id),
+        { id, originalText, newText, x, y, fontSize, page }
+      ]
+    }))
+  }, [])
+
+  const handleGradeModeChange = useCallback((enabled: boolean) => {
+    setGradeMode(enabled)
+    if (enabled && editMode === 'form') {
+      setEditMode('view')
+    }
+  }, [editMode])
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <header className="bg-white border-b px-4 py-3 flex items-center justify-between">
+        <h1 className="text-xl font-bold">PDF Edit</h1>
+        <div className="flex gap-2">
+          <input ref={fileInputRef} type="file" accept=".pdf" className="hidden" onChange={handleFileChange} />
+          <input ref={answerInputRef} type="file" accept=".pdf" className="hidden" onChange={handleAnswerFileChange} />
+          <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">打开 PDF</button>
+          <button onClick={handleDownload} disabled={!pdfBytes} className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 disabled:opacity-50 transition">下载</button>
+        </div>
+      </header>
+
+      {pdfDocProxy ? (
+        <>
+          <Toolbar
+            currentPage={currentPage}
+            numPages={numPages}
+            scale={scale}
+            activeTool={activeTool}
+            color={color}
+            editMode={editMode}
+            gradeMode={gradeMode}
+            onPageChange={setCurrentPage}
+            onScaleChange={setScale}
+            onToolChange={setActiveTool}
+            onColorChange={setColor}
+            onEditModeChange={setEditMode}
+            onGradeModeChange={handleGradeModeChange}
+            onRotatePage={handleRotatePage}
+            onDeletePage={handleDeletePage}
+            onLoadAnswer={() => answerInputRef.current?.click()}
+            hasAnswer={!!answerPdfDocProxy}
+          />
+          <div className="flex flex-1 overflow-hidden">
+            {gradeMode ? (
+              <>
+                {/* Left: Answer PDF */}
+                <main className="flex-1 overflow-auto bg-gray-200 p-4 border-r border-gray-300">
+                  <div className="mb-2 text-center text-sm text-gray-500 font-medium">答案</div>
+                  {answerPdfDocProxy ? (
+                    <PdfViewer
+                      pdfDoc={answerPdfDocProxy}
+                      pageNumber={Math.min(currentPage, answerNumPages)}
+                      scale={scale}
+                      activeTool="select"
+                      color={color}
+                      annotations={[]}
+                      onAnnotationsChange={() => {}}
+                      editMode="view"
+                      textEdits={[]}
+                    />
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center gap-3">
+                      <p className="text-gray-400 text-sm">尚未加载答案 PDF</p>
+                      <button
+                        onClick={() => answerInputRef.current?.click()}
+                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm"
+                      >
+                        加载答案
+                      </button>
+                    </div>
+                  )}
+                </main>
+                {/* Right: Homework PDF */}
+                <main className="flex-1 overflow-auto bg-gray-200 p-4">
+                  <div className="mb-2 text-center text-sm text-gray-500 font-medium">作业</div>
+                  <PdfViewer
+                    pdfDoc={pdfDocProxy}
+                    pageNumber={currentPage}
+                    scale={scale}
+                    activeTool={activeTool}
+                    color={color}
+                    annotations={pageAnnotations[currentPage] || []}
+                    onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))}
+                    editMode={editMode === 'annotate' ? 'annotate' : 'view'}
+                    onTextEdit={handleTextEdit}
+                    textEdits={textEdits[currentPage] || []}
+                  />
+                </main>
+              </>
+            ) : (
+              <>
+                <main className="flex-1 overflow-auto bg-gray-200 p-8">
+                  <PdfViewer
+                    pdfDoc={pdfDocProxy}
+                    pageNumber={currentPage}
+                    scale={scale}
+                    activeTool={activeTool}
+                    color={color}
+                    annotations={pageAnnotations[currentPage] || []}
+                    onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))}
+                    editMode={editMode}
+                    onTextEdit={handleTextEdit}
+                    textEdits={textEdits[currentPage] || []}
+                  />
+                </main>
+                {editMode === 'form' && (
+                  <FormPanel fields={formFields} onChange={setFormFields} />
+                )}
+              </>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-blue-500 transition" onClick={() => fileInputRef.current?.click()}>
+            <p className="text-gray-500 text-lg">点击上传 PDF 文件</p>
+            <p className="text-gray-400 mt-2">或拖拽文件到此处</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
