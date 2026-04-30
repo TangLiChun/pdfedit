@@ -13,6 +13,7 @@ interface PdfViewerProps {
   editMode: 'view' | 'annotate' | 'form' | 'text'
   onTextEdit?: (page: number, id: string, originalText: string, newText: string, x: number, y: number, fontSize: number) => void
   textEdits: TextEditData[]
+  searchHighlights?: { x: number; y: number; width: number; height: number; isActive: boolean }[]
 }
 
 function generateId() {
@@ -37,6 +38,7 @@ export default function PdfViewer({
   editMode,
   onTextEdit,
   textEdits,
+  searchHighlights,
 }: PdfViewerProps) {
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null)
   const annoCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -497,6 +499,25 @@ export default function PdfViewer({
             className="absolute top-0 left-0 z-20"
             style={{ width: pageSize.width, height: pageSize.height, lineHeight: 1 }}
           />
+        )}
+        {/* Search highlights */}
+        {searchHighlights && searchHighlights.length > 0 && pageSize.width > 0 && (
+          <div className="absolute top-0 left-0 z-25 pointer-events-none" style={{ width: pageSize.width, height: pageSize.height }}>
+            {searchHighlights.map((hl, idx) => (
+              <div
+                key={idx}
+                className="absolute"
+                style={{
+                  left: hl.x * scale,
+                  top: hl.y * scale,
+                  width: hl.width * scale,
+                  height: hl.height * scale,
+                  backgroundColor: hl.isActive ? 'rgba(255, 215, 0, 0.6)' : 'rgba(255, 255, 0, 0.4)',
+                  border: hl.isActive ? '2px solid #f59e0b' : 'none',
+                }}
+              />
+            ))}
+          </div>
         )}
         {textInput?.visible && (
           <div

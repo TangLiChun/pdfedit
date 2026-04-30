@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 type Tool = 'select' | 'rect' | 'arrow' | 'text' | 'brush'
 type EditMode = 'view' | 'annotate' | 'form' | 'text'
 
@@ -19,6 +21,14 @@ interface ToolbarProps {
   onDeletePage: () => void
   onLoadAnswer: () => void
   hasAnswer: boolean
+  searchQuery?: string
+  searchResultCount?: number
+  currentSearchIndex?: number
+  onSearch?: (query: string) => void
+  onSearchNext?: () => void
+  onSearchPrev?: () => void
+  onAutoGrade?: () => void
+  isGrading?: boolean
 }
 
 export default function Toolbar({
@@ -39,7 +49,21 @@ export default function Toolbar({
   onDeletePage,
   onLoadAnswer,
   hasAnswer,
+  searchQuery = '',
+  searchResultCount = 0,
+  currentSearchIndex = -1,
+  onSearch,
+  onSearchNext,
+  onSearchPrev,
+  onAutoGrade,
+  isGrading,
 }: ToolbarProps) {
+  const [localSearch, setLocalSearch] = useState(searchQuery)
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSearch?.(localSearch)
+  }
   return (
     <div className="bg-white border-b px-4 py-2 flex items-center gap-4 flex-wrap">
       {/* Page navigation */}
@@ -190,6 +214,43 @@ export default function Toolbar({
           </div>
         </>
       )}
+
+      {/* Auto-grade button in grade mode */}
+      {gradeMode && hasAnswer && (
+        <>
+          <div className="w-px h-6 bg-gray-300" />
+          <button
+            onClick={onAutoGrade}
+            disabled={isGrading}
+            className="px-3 py-1 rounded text-sm bg-orange-50 text-orange-700 hover:bg-orange-100 transition disabled:opacity-50"
+          >
+            {isGrading ? '比对中...' : '自动比对'}
+          </button>
+        </>
+      )}
+
+      <div className="w-px h-6 bg-gray-300" />
+
+      {/* Search */}
+      <form onSubmit={handleSearchSubmit} className="flex items-center gap-1">
+        <input
+          type="text"
+          placeholder="搜索文本..."
+          value={localSearch}
+          onChange={e => setLocalSearch(e.target.value)}
+          className="px-2 py-1 text-sm border rounded w-32 focus:outline-none focus:border-blue-400"
+        />
+        <button type="submit" className="px-2 py-1 rounded hover:bg-gray-100 text-sm">🔍</button>
+        {searchResultCount > 0 && (
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-500">
+              {currentSearchIndex + 1} / {searchResultCount}
+            </span>
+            <button onClick={onSearchPrev} className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-sm" type="button">↑</button>
+            <button onClick={onSearchNext} className="px-1.5 py-0.5 rounded hover:bg-gray-100 text-sm" type="button">↓</button>
+          </div>
+        )}
+      </form>
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { PDFDocument, degrees, rgb } from 'pdf-lib'
 import PdfViewer from './components/PdfViewer'
@@ -91,6 +91,21 @@ export default function App() {
   const [formFields, setFormFields] = useState<FormFieldData[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const answerInputRef = useRef<HTMLInputElement>(null)
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<{ page: number; x: number; y: number; width: number; height: number; text: string }[]>([])
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(-1)
+  const [isAutoGrading, setIsAutoGrading] = useState(false)
+
+  const currentPageSearchHighlights = useMemo(() => {
+    const pageResults = searchResults.filter(r => r.page === currentPage)
+    const pageStartIndex = searchResults.filter(r => r.page < currentPage).length
+    return pageResults.map((r, i) => ({
+      x: r.x, y: r.y, width: r.width, height: r.height,
+      isActive: pageStartIndex + i === currentSearchIndex,
+    }))
+  }, [searchResults, currentPage, currentSearchIndex])
 
   const loadPdf = useCallback(async (bytes: Uint8Array) => {
     setPdfBytes(new Uint8Array(bytes))
@@ -266,6 +281,102 @@ export default function App() {
     }
   }, [editMode])
 
+  // Search logic
+  const handleSearch = useCallback(async (query: string) => {
+    if (!pdfDocProxy || !query.trim()) {
+      setSearchResults([])
+      setCurrentSearchIndex(-1)
+      setSearchQuery('')
+      return
+    }
+    setSearchQuery(query)
+    const results: { page: number; x: number; y: number; width: number; height: number; text: string }[] = []
+    const lowerQuery = query.toLowerCase()
+    for (let p = 1; p <= numPages; p++) {
+      const page = await pdfDocProxy.getPage(p)
+      const viewport = page.getViewport({ scale: 1 })
+      const textContent = await page.getTextContent()
+      const items = textContent.items as any[]
+      items.forEach((item) => {
+        if (item.str.toLowerCase().includes(lowerQuery)) {
+          const tx = pdfjsLib.Util.transform(viewport.transform, item.transform)
+          const fontHeight = Math.hypot(tx[0], tx[1])
+          results.push({
+            page: p,
+            x: tx[4],
+            y: tx[5] - fontHeight,
+            width: item.str.length * fontHeight * 0.6,
+            height: fontHeight * 1.2,
+            text: item.str,
+          })
+        }
+      })
+    }
+    setSearchResults(results)
+    setCurrentSearchIndex(results.length > 0 ? 0 : -1)
+    if (results.length > 0) {
+      setCurrentPage(results[0].page)
+    }
+  }, [pdfDocProxy, numPages])
+
+  const handleSearchNext = useCallback(() => {
+    if (searchResults.length === 0) return
+    const nextIndex = (currentSearchIndex + 1) % searchResults.length
+    setCurrentSearchIndex(nextIndex)
+    setCurrentPage(searchResults[nextIndex].page)
+  }, [searchResults, currentSearchIndex])
+
+  const handleSearchPrev = useCallback(() => {
+    if (searchResults.length === 0) return
+    const prevIndex = (currentSearchIndex - 1 + searchResults.length) % searchResults.length
+    setCurrentSearchIndex(prevIndex)
+    setCurrentPage(searchResults[prevIndex].page)
+  }, [searchResults, currentSearchIndex])
+
+  // Auto-grade: compare answer and student text
+  const handleAutoGrade = useCallback(async () => {
+    if (!pdfDocProxy || !answerPdfDocProxy) return
+    setIsAutoGrading(true)
+    try {
+      const answerPage = await answerPdfDocProxy.getPage(answerCurrentPage)
+      const answerText = await answerPage.getTextContent()
+      const answerTexts = (answerText.items as any[]).map(item => item.str).join(' ')
+
+      const studentPage = await pdfDocProxy.getPage(currentPage)
+      const studentViewport = studentPage.getViewport({ scale: 1 })
+      const studentText = await studentPage.getTextContent()
+      const studentItems = studentText.items as any[]
+
+      const newAnns: AnnotationData[] = []
+      studentItems.forEach((item, idx) => {
+        const str = item.str.trim()
+        if (!str || str.length < 2) return
+        if (!answerTexts.includes(str)) {
+          const tx = pdfjsLib.Util.transform(studentViewport.transform, item.transform)
+          const fontHeight = Math.hypot(tx[0], tx[1])
+          newAnns.push({
+            id: `grade-${Date.now()}-${idx}`,
+            type: 'rect',
+            x: tx[4] - 2,
+            y: tx[5] - fontHeight - 2,
+            w: str.length * fontHeight * 0.6 + 4,
+            h: fontHeight + 4,
+            color: '#ff0000',
+          })
+        }
+      })
+
+      if (newAnns.length > 0) {
+        setPageAnnotations(prev => ({
+          ...prev,
+          [currentPage]: [...(prev[currentPage] || []), ...newAnns],
+        }))
+      }
+    } finally {
+      setIsAutoGrading(false)
+    }
+  }, [pdfDocProxy, answerPdfDocProxy, answerCurrentPage, currentPage])
+
   // Restore session on mount
   const hasRestored = useRef(false)
   useEffect(() => {
@@ -358,6 +469,14 @@ export default function App() {
             onDeletePage={handleDeletePage}
             onLoadAnswer={() => answerInputRef.current?.click()}
             hasAnswer={!!answerPdfDocProxy}
+            searchQuery={searchQuery}
+            searchResultCount={searchResults.length}
+            currentSearchIndex={currentSearchIndex}
+            onSearch={handleSearch}
+            onSearchNext={handleSearchNext}
+            onSearchPrev={handleSearchPrev}
+            onAutoGrade={handleAutoGrade}
+            isGrading={isAutoGrading}
           />
           <div className="flex flex-1 overflow-hidden">
             {gradeMode ? (
@@ -384,13 +503,13 @@ export default function App() {
                 </main>
                 <main className="flex-1 overflow-auto bg-gray-200 p-4">
                   <div className="mb-2 text-center text-sm text-gray-500 font-medium">作业</div>
-                  <PdfViewer pdfDoc={pdfDocProxy} pageNumber={currentPage} scale={scale} activeTool={activeTool} color={color} annotations={pageAnnotations[currentPage] || []} onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))} editMode={editMode === 'annotate' ? 'annotate' : 'view'} onTextEdit={handleTextEdit} textEdits={textEdits[currentPage] || []} />
+                  <PdfViewer pdfDoc={pdfDocProxy} pageNumber={currentPage} scale={scale} activeTool={activeTool} color={color} annotations={pageAnnotations[currentPage] || []} onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))} editMode={editMode === 'annotate' ? 'annotate' : 'view'} onTextEdit={handleTextEdit} textEdits={textEdits[currentPage] || []} searchHighlights={currentPageSearchHighlights} />
                 </main>
               </>
             ) : (
               <>
                 <main className="flex-1 overflow-auto bg-gray-200 p-8">
-                  <PdfViewer pdfDoc={pdfDocProxy} pageNumber={currentPage} scale={scale} activeTool={activeTool} color={color} annotations={pageAnnotations[currentPage] || []} onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))} editMode={editMode} onTextEdit={handleTextEdit} textEdits={textEdits[currentPage] || []} />
+                  <PdfViewer pdfDoc={pdfDocProxy} pageNumber={currentPage} scale={scale} activeTool={activeTool} color={color} annotations={pageAnnotations[currentPage] || []} onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))} editMode={editMode} onTextEdit={handleTextEdit} textEdits={textEdits[currentPage] || []} searchHighlights={currentPageSearchHighlights} />
                 </main>
                 {editMode === 'form' && (
                   <FormPanel fields={formFields} onChange={setFormFields} />
