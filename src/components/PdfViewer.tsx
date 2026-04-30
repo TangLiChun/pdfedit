@@ -168,7 +168,8 @@ export default function PdfViewer({
     if (!fabricCanvasElRef.current || pageSize.width === 0 || editMode !== 'annotate') return
 
     if (fabricCanvasRef.current) {
-      try { fabricCanvasRef.current.dispose() } catch { /* ignore */ }
+      Promise.resolve(fabricCanvasRef.current.dispose()).catch(() => {})
+      fabricCanvasRef.current = null
     }
 
     let fabricCanvas: Canvas
@@ -357,7 +358,7 @@ export default function PdfViewer({
     return () => {
       fabricCanvas.off('object:modified', handleModified)
       fabricCanvas.off('object:removed', handleModified)
-      try { fabricCanvas.dispose() } catch { /* ignore */ }
+      Promise.resolve(fabricCanvas.dispose()).catch(() => {})
     }
   }, [pageSize, activeTool, editMode, color])
 
