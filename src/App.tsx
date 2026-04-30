@@ -91,12 +91,11 @@ export default function App() {
   const answerInputRef = useRef<HTMLInputElement>(null)
 
   const loadPdf = useCallback(async (bytes: Uint8Array) => {
-    setPdfBytes(bytes)
-    const bytesCopy = new Uint8Array(bytes)
-    const loadingTask = pdfjsLib.getDocument({ data: bytes })
+    setPdfBytes(new Uint8Array(bytes))
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes) })
     const pdf = await loadingTask.promise
     setPdfDocProxy(pdf)
-    const libDoc = await PDFDocument.load(bytesCopy)
+    const libDoc = await PDFDocument.load(new Uint8Array(bytes))
     setPdfLibDoc(libDoc)
     setNumPages(pdf.numPages)
     setCurrentPage(1)
@@ -154,8 +153,9 @@ export default function App() {
   }, [pdfLibDoc, pdfBytes, currentPage, numPages, loadPdf])
 
   const handleDownload = useCallback(async () => {
-    if (!pdfBytes || !pdfLibDoc) return
-    const finalDoc = await PDFDocument.load(pdfBytes.slice())
+    if (!pdfLibDoc) return
+    const currentBytes = await pdfLibDoc.save()
+    const finalDoc = await PDFDocument.load(new Uint8Array(currentBytes))
 
     try {
       const form = finalDoc.getForm()
@@ -244,7 +244,7 @@ export default function App() {
     a.download = 'edited.pdf'
     a.click()
     URL.revokeObjectURL(url)
-  }, [pdfBytes, pdfLibDoc, formFields, textEdits, pageAnnotations])
+  }, [pdfLibDoc, formFields, textEdits, pageAnnotations])
 
   const handleTextEdit = useCallback((page: number, id: string, originalText: string, newText: string, x: number, y: number, fontSize: number) => {
     setTextEdits(prev => ({
