@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { Canvas, Rect, IText, Line, Triangle, Path } from 'fabric'
 import type { AnnotationData, TextEditData } from '../App'
@@ -54,6 +54,16 @@ export default function PdfViewer({
   const startPointRef = useRef<{ x: number; y: number } | null>(null)
   const drawPointsRef = useRef<{ x: number; y: number }[]>([])
   const currentPathRef = useRef<any>(null)
+
+  const getCanvasPoint = useCallback((nativeEvt: MouseEvent): { x: number; y: number } | null => {
+    const el = fabricCanvasElRef.current
+    if (!el) return null
+    const rect = el.getBoundingClientRect()
+    return {
+      x: nativeEvt.clientX - rect.left,
+      y: nativeEvt.clientY - rect.top,
+    }
+  }, [])
 
   // Render PDF page
   useEffect(() => {
@@ -212,8 +222,7 @@ export default function PdfViewer({
     if (activeTool !== 'select') {
       fabricCanvas.on('mouse:down', (e) => {
         const native = (e as any).e as MouseEvent
-        if (!native) return
-        const point = fabricCanvas.getScenePoint(native)
+        const point = getCanvasPoint(native)
         if (!point) return
         isDrawingRef.current = true
         startPointRef.current = { x: point.x, y: point.y }
@@ -225,9 +234,9 @@ export default function PdfViewer({
       })
 
       fabricCanvas.on('mouse:move', (e) => {
+        if (!isDrawingRef.current) return
         const native = (e as any).e as MouseEvent
-        if (!isDrawingRef.current || !native) return
-        const point = fabricCanvas.getScenePoint(native)
+        const point = getCanvasPoint(native)
         if (!point) return
 
         if (activeTool === 'brush') {
@@ -271,7 +280,7 @@ export default function PdfViewer({
 
         const native = (e as any).e as MouseEvent
         if (!native || !startPointRef.current) return
-        const point = fabricCanvas.getScenePoint(native)
+        const point = getCanvasPoint(native)
         if (!point) return
         const start = startPointRef.current
         const end = point
