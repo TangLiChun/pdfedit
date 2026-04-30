@@ -362,8 +362,8 @@ export default function PdfViewer({
   }, [pageSize, activeTool, editMode, color])
 
   return (
-    <div className="flex justify-center">
-      <div className="relative shadow-lg bg-white" style={{ width: pageSize.width || 'auto', height: pageSize.height || 'auto' }}>
+    <div className="overflow-auto">
+      <div className="relative shadow-lg bg-white mx-auto" style={{ width: pageSize.width || 'auto', height: pageSize.height || 'auto' }}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-30">
             <span className="text-gray-500">加载中...</span>

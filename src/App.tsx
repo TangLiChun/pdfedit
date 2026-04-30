@@ -35,7 +35,7 @@ export default function App() {
   const [pdfLibDoc, setPdfLibDoc] = useState<PDFDocument | null>(null)
   const [numPages, setNumPages] = useState(0)
   const [currentPage, setCurrentPage] = useState(1)
-  const [scale, setScale] = useState(1.5)
+  const [scale, setScale] = useState(1.0)
 
   // Answer PDF
   const [answerPdfDocProxy, setAnswerPdfDocProxy] = useState<pdfjsLib.PDFDocumentProxy | null>(null)

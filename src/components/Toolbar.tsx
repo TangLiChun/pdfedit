@@ -67,9 +67,9 @@ export default function Toolbar({
 
       {/* Scale */}
       <div className="flex items-center gap-2">
-        <button onClick={() => onScaleChange(Math.max(0.5, scale - 0.25))} className="px-3 py-1 rounded hover:bg-gray-100">−</button>
+        <button onClick={() => onScaleChange(Math.max(0.25, scale - 0.25))} className="px-3 py-1 rounded hover:bg-gray-100">−</button>
         <span className="text-sm w-14 text-center">{Math.round(scale * 100)}%</span>
-        <button onClick={() => onScaleChange(Math.min(3, scale + 0.25))} className="px-3 py-1 rounded hover:bg-gray-100">+</button>
+        <button onClick={() => onScaleChange(Math.min(1, scale + 0.25))} className="px-3 py-1 rounded hover:bg-gray-100">+</button>
       </div>
 
       <div className="w-px h-6 bg-gray-300" />
