@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
-import { Canvas, Rect, IText, Line, Triangle, Path } from 'fabric'
 import type { AnnotationData, TextEditData } from '../App'
 
 interface PdfViewerProps {
@@ -27,11 +26,6 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-function pointsToPath(points: { x: number; y: number }[]): string {
-  if (points.length < 2) return ''
-  return 'M ' + points.map(p => `${p.x} ${p.y}`).join(' L ')
-}
-
 export default function PdfViewer({
   pdfDoc,
   pageNumber,
@@ -45,23 +39,26 @@ export default function PdfViewer({
   textEdits,
 }: PdfViewerProps) {
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null)
-  const fabricContainerRef = useRef<HTMLDivElement>(null)
-  const fabricCanvasRef = useRef<Canvas | null>(null)
+  const annoCanvasRef = useRef<HTMLCanvasElement>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(false)
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 })
+
   const isDrawingRef = useRef(false)
   const startPointRef = useRef<{ x: number; y: number } | null>(null)
-  const drawPointsRef = useRef<{ x: number; y: number }[]>([])
-  const currentPathRef = useRef<any>(null)
+  const currentPointsRef = useRef<{ x: number; y: number }[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const dragOffsetRef = useRef<{ x: number; y: number } | null>(null)
 
-  const getCanvasPoint = useCallback((nativeEvt: MouseEvent): { x: number; y: number } | null => {
-    const el = fabricContainerRef.current
-    if (!el) return null
-    const rect = el.getBoundingClientRect()
+  const [textInput, setTextInput] = useState<{ x: number; y: number; value: string; visible: boolean } | null>(null)
+
+  const getCanvasPoint = useCallback((e: React.MouseEvent | MouseEvent): { x: number; y: number } | null => {
+    const canvas = annoCanvasRef.current
+    if (!canvas) return null
+    const rect = canvas.getBoundingClientRect()
     return {
-      x: nativeEvt.clientX - rect.left,
-      y: nativeEvt.clientY - rect.top,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
     }
   }, [])
 
@@ -97,19 +94,301 @@ export default function PdfViewer({
     return () => { cancelled = true }
   }, [pdfDoc, pageNumber, scale, editMode])
 
-  // Re-render text layer when textEdits change (only update content, don't recreate)
+  // Sync annotation canvas size and redraw
   useEffect(() => {
-    if (editMode !== 'text' || !textLayerRef.current) return
-    const spans = textLayerRef.current.querySelectorAll('span[contenteditable]')
-    spans.forEach(span => {
-      const editId = span.getAttribute('data-edit-id')
-      if (!editId) return
-      const edit = textEdits.find(e => e.id === editId)
-      if (edit && span.textContent !== edit.newText) {
-        span.textContent = edit.newText
+    const canvas = annoCanvasRef.current
+    if (!canvas || pageSize.width === 0) return
+    canvas.width = pageSize.width
+    canvas.height = pageSize.height
+    drawAnnotations()
+  }, [pageSize])
+
+  // Redraw annotations when they change
+  useEffect(() => {
+    drawAnnotations()
+  }, [annotations, selectedId])
+
+  const drawAnnotations = () => {
+    const canvas = annoCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')!
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    annotations.forEach(ann => {
+      const isSelected = ann.id === selectedId
+      if (isSelected) {
+        ctx.save()
+        ctx.shadowColor = 'rgba(59, 130, 246, 0.8)'
+        ctx.shadowBlur = 4
+      }
+
+      switch (ann.type) {
+        case 'rect': {
+          ctx.fillStyle = hexToRgba(ann.color, 0.3)
+          ctx.fillRect(ann.x, ann.y, ann.w, ann.h)
+          ctx.strokeStyle = ann.color
+          ctx.lineWidth = 2
+          ctx.strokeRect(ann.x, ann.y, ann.w, ann.h)
+          break
+        }
+        case 'arrow': {
+          drawArrow(ctx, ann.x1, ann.y1, ann.x2, ann.y2, ann.color)
+          break
+        }
+        case 'text': {
+          ctx.fillStyle = ann.color
+          ctx.font = '20px sans-serif'
+          ctx.fillText(ann.text, ann.x, ann.y + 20)
+          break
+        }
+        case 'brush': {
+          if (ann.points.length < 2) break
+          ctx.beginPath()
+          ctx.moveTo(ann.points[0].x, ann.points[0].y)
+          for (let i = 1; i < ann.points.length; i++) {
+            ctx.lineTo(ann.points[i].x, ann.points[i].y)
+          }
+          ctx.strokeStyle = ann.color
+          ctx.lineWidth = 2
+          ctx.lineCap = 'round'
+          ctx.lineJoin = 'round'
+          ctx.stroke()
+          break
+        }
+      }
+
+      if (isSelected) {
+        ctx.restore()
       }
     })
-  }, [textEdits, editMode])
+  }
+
+  const drawArrow = (ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string) => {
+    const headLen = 15
+    const dx = x2 - x1
+    const dy = y2 - y1
+    const angle = Math.atan2(dy, dx)
+
+    ctx.beginPath()
+    ctx.moveTo(x1, y1)
+    ctx.lineTo(x2, y2)
+    ctx.strokeStyle = color
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    ctx.beginPath()
+    ctx.moveTo(x2, y2)
+    ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6))
+    ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6))
+    ctx.closePath()
+    ctx.fillStyle = color
+    ctx.fill()
+  }
+
+  const hitTest = (ann: AnnotationData, x: number, y: number): boolean => {
+    switch (ann.type) {
+      case 'rect':
+        return x >= ann.x && x <= ann.x + ann.w && y >= ann.y && y <= ann.y + ann.h
+      case 'arrow': {
+        const minX = Math.min(ann.x1, ann.x2) - 10
+        const maxX = Math.max(ann.x1, ann.x2) + 10
+        const minY = Math.min(ann.y1, ann.y2) - 10
+        const maxY = Math.max(ann.y1, ann.y2) + 10
+        return x >= minX && x <= maxX && y >= minY && y <= maxY
+      }
+      case 'text': {
+        const width = ann.text.length * 12
+        return x >= ann.x && x <= ann.x + width && y >= ann.y && y <= ann.y + 24
+      }
+      case 'brush': {
+        for (const p of ann.points) {
+          if (Math.abs(p.x - x) < 8 && Math.abs(p.y - y) < 8) return true
+        }
+        return false
+      }
+    }
+    return false
+  }
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (editMode !== 'annotate') return
+    const point = getCanvasPoint(e)
+    if (!point) return
+
+    if (activeTool === 'select') {
+      for (let i = annotations.length - 1; i >= 0; i--) {
+        const ann = annotations[i]
+        if (hitTest(ann, point.x, point.y)) {
+          setSelectedId(ann.id)
+          dragOffsetRef.current = { x: point.x, y: point.y }
+          isDrawingRef.current = true
+          return
+        }
+      }
+      setSelectedId(null)
+      return
+    }
+
+    if (activeTool === 'text') {
+      setTextInput({ x: point.x, y: point.y, value: '', visible: true })
+      return
+    }
+
+    isDrawingRef.current = true
+    startPointRef.current = point
+    if (activeTool === 'brush') {
+      currentPointsRef.current = [{ x: point.x, y: point.y }]
+    }
+  }
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDrawingRef.current) return
+    const point = getCanvasPoint(e)
+    if (!point || !startPointRef.current) return
+
+    const canvas = annoCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')!
+
+    if (activeTool === 'select' && selectedId && dragOffsetRef.current) {
+      const dx = point.x - dragOffsetRef.current.x
+      const dy = point.y - dragOffsetRef.current.y
+      dragOffsetRef.current = { x: point.x, y: point.y }
+
+      const newAnns = annotations.map(ann => {
+        if (ann.id !== selectedId) return ann
+        if (ann.type === 'rect') {
+          return { ...ann, x: ann.x + dx, y: ann.y + dy }
+        } else if (ann.type === 'arrow') {
+          return { ...ann, x1: ann.x1 + dx, y1: ann.y1 + dy, x2: ann.x2 + dx, y2: ann.y2 + dy }
+        } else if (ann.type === 'text') {
+          return { ...ann, x: ann.x + dx, y: ann.y + dy }
+        } else if (ann.type === 'brush') {
+          return { ...ann, points: ann.points.map(p => ({ x: p.x + dx, y: p.y + dy })) }
+        }
+        return ann
+      })
+      onAnnotationsChange(newAnns)
+      return
+    }
+
+    if (activeTool === 'brush') {
+      currentPointsRef.current.push({ x: point.x, y: point.y })
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      drawAnnotations()
+
+      ctx.beginPath()
+      const pts = currentPointsRef.current
+      ctx.moveTo(pts[0].x, pts[0].y)
+      for (let i = 1; i < pts.length; i++) {
+        ctx.lineTo(pts[i].x, pts[i].y)
+      }
+      ctx.strokeStyle = color
+      ctx.lineWidth = 2
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.stroke()
+      return
+    }
+
+    if (activeTool === 'rect') {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      drawAnnotations()
+      const start = startPointRef.current
+      ctx.fillStyle = hexToRgba(color, 0.3)
+      ctx.fillRect(start.x, start.y, point.x - start.x, point.y - start.y)
+      ctx.strokeStyle = color
+      ctx.lineWidth = 2
+      ctx.strokeRect(start.x, start.y, point.x - start.x, point.y - start.y)
+      return
+    }
+
+    if (activeTool === 'arrow') {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      drawAnnotations()
+      drawArrow(ctx, startPointRef.current.x, startPointRef.current.y, point.x, point.y, color)
+      return
+    }
+  }
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (!isDrawingRef.current) return
+    isDrawingRef.current = false
+
+    if (activeTool === 'select') {
+      dragOffsetRef.current = null
+      return
+    }
+
+    const point = getCanvasPoint(e)
+    if (!point || !startPointRef.current) return
+    const start = startPointRef.current
+    const end = point
+
+    if (activeTool === 'rect') {
+      const w = Math.abs(end.x - start.x)
+      const h = Math.abs(end.y - start.y)
+      if (w < 5 || h < 5) {
+        drawAnnotations()
+        return
+      }
+      const newAnn: AnnotationData = {
+        id: generateId(),
+        type: 'rect',
+        x: Math.min(start.x, end.x),
+        y: Math.min(start.y, end.y),
+        w,
+        h,
+        color,
+      }
+      onAnnotationsChange([...annotations, newAnn])
+    } else if (activeTool === 'arrow') {
+      if (Math.abs(end.x - start.x) < 5 && Math.abs(end.y - start.y) < 5) {
+        drawAnnotations()
+        return
+      }
+      const newAnn: AnnotationData = {
+        id: generateId(),
+        type: 'arrow',
+        x1: start.x,
+        y1: start.y,
+        x2: end.x,
+        y2: end.y,
+        color,
+      }
+      onAnnotationsChange([...annotations, newAnn])
+    } else if (activeTool === 'brush') {
+      if (currentPointsRef.current.length < 2) {
+        drawAnnotations()
+        return
+      }
+      const newAnn: AnnotationData = {
+        id: generateId(),
+        type: 'brush',
+        points: [...currentPointsRef.current],
+        color,
+      }
+      onAnnotationsChange([...annotations, newAnn])
+      currentPointsRef.current = []
+    }
+
+    startPointRef.current = null
+    drawAnnotations()
+  }
+
+  const handleDeleteKey = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (selectedId) {
+        onAnnotationsChange(annotations.filter(a => a.id !== selectedId))
+        setSelectedId(null)
+      }
+    }
+  }, [selectedId, annotations, onAnnotationsChange])
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleDeleteKey)
+    return () => window.removeEventListener('keydown', handleDeleteKey)
+  }, [handleDeleteKey])
 
   const renderTextLayer = async (page: pdfjsLib.PDFPageProxy, viewport: pdfjsLib.PageViewport) => {
     const textLayerDiv = textLayerRef.current!
@@ -163,204 +442,35 @@ export default function PdfViewer({
     }
   }
 
-  // Initialize Fabric canvas
   useEffect(() => {
-    if (!fabricContainerRef.current || pageSize.width === 0 || editMode !== 'annotate') return
+    if (editMode !== 'text' || !textLayerRef.current) return
+    const spans = textLayerRef.current.querySelectorAll('span[contenteditable]')
+    spans.forEach(span => {
+      const editId = span.getAttribute('data-edit-id')
+      if (!editId) return
+      const edit = textEdits.find(e => e.id === editId)
+      if (edit && span.textContent !== edit.newText) {
+        span.textContent = edit.newText
+      }
+    })
+  }, [textEdits, editMode])
 
-    if (fabricCanvasRef.current) {
-      Promise.resolve(fabricCanvasRef.current.dispose()).catch(() => {})
-      fabricCanvasRef.current = null
-    }
-
-    let fabricCanvas: Canvas
-    try {
-      fabricCanvas = new Canvas(fabricContainerRef.current as any, {
-        width: pageSize.width,
-        height: pageSize.height,
-        selection: activeTool === 'select',
-        backgroundColor: 'transparent',
-      })
-    } catch (err) {
-      console.error('Fabric canvas init failed:', err)
+  const handleTextSubmit = () => {
+    if (!textInput || !textInput.value.trim()) {
+      setTextInput(null)
       return
     }
-    fabricCanvasRef.current = fabricCanvas
-
-    // Load saved annotations (async)
-    const loadAnnotations = async () => {
-      for (const ann of annotations) {
-        try {
-          const json = ann.fabricJson
-          let obj
-          if (json.type === 'rect') {
-            obj = await Rect.fromObject(json)
-          } else if (json.type === 'i-text') {
-            obj = await IText.fromObject(json)
-          } else if (json.type === 'line') {
-            obj = await Line.fromObject(json)
-          } else if (json.type === 'triangle') {
-            obj = await Triangle.fromObject(json)
-          } else if (json.type === 'path') {
-            obj = await Path.fromObject(json)
-          }
-          if (obj) fabricCanvas.add(obj as any)
-        } catch (err) {
-          console.error('Failed to load annotation:', err)
-        }
-      }
-      fabricCanvas.requestRenderAll()
+    const newAnn: AnnotationData = {
+      id: generateId(),
+      type: 'text',
+      x: textInput.x,
+      y: textInput.y,
+      text: textInput.value,
+      color,
     }
-    loadAnnotations()
-
-    // Set interaction mode
-    fabricCanvas.selection = activeTool === 'select'
-    fabricCanvas.forEachObject(obj => {
-      obj.selectable = activeTool === 'select'
-      obj.evented = activeTool === 'select'
-    })
-
-    // Drawing handlers
-    if (activeTool !== 'select') {
-      fabricCanvas.on('mouse:down', (e) => {
-        const native = (e as any).e as MouseEvent
-        const point = getCanvasPoint(native)
-        if (!point) return
-        isDrawingRef.current = true
-        startPointRef.current = { x: point.x, y: point.y }
-
-        if (activeTool === 'brush') {
-          drawPointsRef.current = [{ x: point.x, y: point.y }]
-          currentPathRef.current = null
-        }
-      })
-
-      fabricCanvas.on('mouse:move', (e) => {
-        if (!isDrawingRef.current) return
-        const native = (e as any).e as MouseEvent
-        const point = getCanvasPoint(native)
-        if (!point) return
-
-        if (activeTool === 'brush') {
-          drawPointsRef.current.push({ x: point.x, y: point.y })
-
-          if (currentPathRef.current) {
-            fabricCanvas.remove(currentPathRef.current)
-          }
-
-          const pathData = pointsToPath(drawPointsRef.current)
-          if (pathData) {
-            const path = new Path(pathData, {
-              stroke: color,
-              strokeWidth: 2,
-              fill: 'transparent',
-              selectable: false,
-              evented: false,
-            })
-            fabricCanvas.add(path)
-            currentPathRef.current = path
-          }
-        }
-      })
-
-      fabricCanvas.on('mouse:up', (e) => {
-        if (!isDrawingRef.current) return
-        isDrawingRef.current = false
-
-        if (activeTool === 'brush') {
-          currentPathRef.current = null
-          drawPointsRef.current = []
-
-          const newAnns = fabricCanvas.getObjects().map((obj, i) => ({
-            id: annotations[i]?.id || generateId(),
-            fabricJson: obj.toObject(),
-          }))
-          onAnnotationsChange(newAnns)
-          startPointRef.current = null
-          return
-        }
-
-        const native = (e as any).e as MouseEvent
-        if (!native || !startPointRef.current) return
-        const point = getCanvasPoint(native)
-        if (!point) return
-        const start = startPointRef.current
-        const end = point
-
-        if (activeTool === 'rect') {
-          const rect = new Rect({
-            left: Math.min(start.x, end.x),
-            top: Math.min(start.y, end.y),
-            width: Math.abs(end.x - start.x),
-            height: Math.abs(end.y - start.y),
-            fill: hexToRgba(color, 0.3),
-            stroke: color,
-            strokeWidth: 2,
-          })
-          fabricCanvas.add(rect)
-        } else if (activeTool === 'text') {
-          const text = new IText('双击编辑', {
-            left: end.x,
-            top: end.y,
-            fontSize: 20,
-            fill: color,
-          })
-          fabricCanvas.add(text)
-          text.enterEditing()
-          text.selectAll()
-        } else if (activeTool === 'arrow') {
-          const dx = end.x - start.x
-          const dy = end.y - start.y
-          const angle = Math.atan2(dy, dx)
-          const headLen = 15
-
-          const line = new Line([start.x, start.y, end.x, end.y], {
-            stroke: color,
-            strokeWidth: 2,
-          })
-
-          const head = new Triangle({
-            left: end.x,
-            top: end.y,
-            width: headLen,
-            height: headLen,
-            angle: (angle * 180 / Math.PI) + 90,
-            fill: color,
-            originX: 'center',
-            originY: 'center',
-          })
-
-          fabricCanvas.add(line, head)
-        }
-
-        // Save all annotations
-        const newAnns = fabricCanvas.getObjects().map((obj, i) => ({
-          id: annotations[i]?.id || generateId(),
-          fabricJson: obj.toObject(),
-        }))
-        onAnnotationsChange(newAnns)
-
-        startPointRef.current = null
-      })
-    }
-
-    // Save on modification
-    const handleModified = () => {
-      const newAnns = fabricCanvas.getObjects().map((obj, i) => ({
-        id: annotations[i]?.id || generateId(),
-        fabricJson: obj.toObject(),
-      }))
-      onAnnotationsChange(newAnns)
-    }
-
-    fabricCanvas.on('object:modified', handleModified)
-    fabricCanvas.on('object:removed', handleModified)
-
-    return () => {
-      fabricCanvas.off('object:modified', handleModified)
-      fabricCanvas.off('object:removed', handleModified)
-      Promise.resolve(fabricCanvas.dispose()).catch(() => {})
-    }
-  }, [pageSize, activeTool, editMode, color])
+    onAnnotationsChange([...annotations, newAnn])
+    setTextInput(null)
+  }
 
   return (
     <div className="overflow-auto">
@@ -372,10 +482,13 @@ export default function PdfViewer({
         )}
         <canvas ref={pdfCanvasRef} className="block" />
         {editMode === 'annotate' && pageSize.width > 0 && (
-          <div
-            ref={fabricContainerRef}
+          <canvas
+            ref={annoCanvasRef}
             className="absolute top-0 left-0 z-10"
-            style={{ width: pageSize.width, height: pageSize.height }}
+            style={{ width: pageSize.width, height: pageSize.height, cursor: activeTool === 'select' ? 'default' : 'crosshair' }}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
           />
         )}
         {editMode === 'text' && pageSize.width > 0 && (
@@ -384,6 +497,25 @@ export default function PdfViewer({
             className="absolute top-0 left-0 z-20"
             style={{ width: pageSize.width, height: pageSize.height, lineHeight: 1 }}
           />
+        )}
+        {textInput?.visible && (
+          <div
+            className="absolute z-30 flex items-center gap-1 bg-white shadow-lg border rounded p-1"
+            style={{ left: textInput.x, top: textInput.y }}
+          >
+            <input
+              type="text"
+              autoFocus
+              className="border rounded px-2 py-1 text-sm outline-none"
+              value={textInput.value}
+              onChange={e => setTextInput({ ...textInput, value: e.target.value })}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleTextSubmit()
+                if (e.key === 'Escape') setTextInput(null)
+              }}
+            />
+            <button onClick={handleTextSubmit} className="px-2 py-1 bg-blue-600 text-white rounded text-sm">OK</button>
+          </div>
         )}
       </div>
     </div>

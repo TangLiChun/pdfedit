@@ -7,10 +7,43 @@ import FormPanel from './components/FormPanel'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
 
-export interface AnnotationData {
+export interface RectAnnotation {
   id: string
-  fabricJson: any
+  type: 'rect'
+  x: number
+  y: number
+  w: number
+  h: number
+  color: string
 }
+
+export interface ArrowAnnotation {
+  id: string
+  type: 'arrow'
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  color: string
+}
+
+export interface TextAnnotation {
+  id: string
+  type: 'text'
+  x: number
+  y: number
+  text: string
+  color: string
+}
+
+export interface BrushAnnotation {
+  id: string
+  type: 'brush'
+  points: { x: number; y: number }[]
+  color: string
+}
+
+export type AnnotationData = RectAnnotation | ArrowAnnotation | TextAnnotation | BrushAnnotation
 
 export interface TextEditData {
   id: string
@@ -28,8 +61,14 @@ export interface FormFieldData {
   value: string
 }
 
+function hexToRgb(hex: string) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255
+  const g = parseInt(hex.slice(3, 5), 16) / 255
+  const b = parseInt(hex.slice(5, 7), 16) / 255
+  return rgb(r, g, b)
+}
+
 export default function App() {
-  // Main PDF (homework)
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
   const [pdfDocProxy, setPdfDocProxy] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [pdfLibDoc, setPdfLibDoc] = useState<PDFDocument | null>(null)
@@ -37,7 +76,6 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1)
   const [scale, setScale] = useState(1.0)
 
-  // Answer PDF
   const [answerPdfDocProxy, setAnswerPdfDocProxy] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [answerNumPages, setAnswerNumPages] = useState(0)
   const [answerCurrentPage, setAnswerCurrentPage] = useState(1)
@@ -55,16 +93,13 @@ export default function App() {
   const loadPdf = useCallback(async (bytes: Uint8Array) => {
     setPdfBytes(bytes)
     const bytesCopy = new Uint8Array(bytes)
-
     const loadingTask = pdfjsLib.getDocument({ data: bytes })
     const pdf = await loadingTask.promise
     setPdfDocProxy(pdf)
-
     const libDoc = await PDFDocument.load(bytesCopy)
     setPdfLibDoc(libDoc)
     setNumPages(pdf.numPages)
     setCurrentPage(1)
-
     try {
       const form = libDoc.getForm()
       const fields = form.getFields()
@@ -120,7 +155,6 @@ export default function App() {
 
   const handleDownload = useCallback(async () => {
     if (!pdfBytes || !pdfLibDoc) return
-
     const finalDoc = await PDFDocument.load(pdfBytes.slice())
 
     try {
@@ -161,23 +195,43 @@ export default function App() {
       const page = finalDoc.getPage(pageIndex)
       const { height } = page.getSize()
       anns.forEach(ann => {
-        const json = ann.fabricJson
-        if (json.type === 'rect') {
-          page.drawRectangle({
-            x: json.left,
-            y: height - json.top - json.height,
-            width: json.width,
-            height: json.height,
-            color: rgb(1, 1, 0),
-            opacity: 0.3,
-          })
-        } else if (json.type === 'i-text') {
-          page.drawText(json.text, {
-            x: json.left,
-            y: height - json.top,
-            size: json.fontSize,
-            color: rgb(1, 0, 0),
-          })
+        switch (ann.type) {
+          case 'rect':
+            page.drawRectangle({
+              x: ann.x,
+              y: height - ann.y - ann.h,
+              width: ann.w,
+              height: ann.h,
+              color: hexToRgb(ann.color),
+              opacity: 0.3,
+            })
+            break
+          case 'text':
+            page.drawText(ann.text, {
+              x: ann.x,
+              y: height - ann.y,
+              size: 20,
+              color: hexToRgb(ann.color),
+            })
+            break
+          case 'arrow':
+            page.drawLine({
+              start: { x: ann.x1, y: height - ann.y1 },
+              end: { x: ann.x2, y: height - ann.y2 },
+              thickness: 2,
+              color: hexToRgb(ann.color),
+            })
+            break
+          case 'brush':
+            for (let i = 1; i < ann.points.length; i++) {
+              page.drawLine({
+                start: { x: ann.points[i - 1].x, y: height - ann.points[i - 1].y },
+                end: { x: ann.points[i].x, y: height - ann.points[i].y },
+                thickness: 2,
+                color: hexToRgb(ann.color),
+              })
+            }
+            break
         }
       })
     })
@@ -245,82 +299,35 @@ export default function App() {
           <div className="flex flex-1 overflow-hidden">
             {gradeMode ? (
               <>
-                {/* Left: Answer PDF */}
                 <main className="flex-1 overflow-auto bg-gray-200 p-4 border-r border-gray-300">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm text-gray-500 font-medium">答案</span>
                     {answerPdfDocProxy && (
                       <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => setAnswerCurrentPage(p => Math.max(1, p - 1))}
-                          disabled={answerCurrentPage <= 1}
-                          className="px-2 py-0.5 rounded hover:bg-gray-300 disabled:opacity-30 text-sm"
-                        >←</button>
+                        <button onClick={() => setAnswerCurrentPage(p => Math.max(1, p - 1))} disabled={answerCurrentPage <= 1} className="px-2 py-0.5 rounded hover:bg-gray-300 disabled:opacity-30 text-sm">←</button>
                         <span className="text-xs text-gray-500 min-w-[50px] text-center">{answerCurrentPage} / {answerNumPages}</span>
-                        <button
-                          onClick={() => setAnswerCurrentPage(p => Math.min(answerNumPages, p + 1))}
-                          disabled={answerCurrentPage >= answerNumPages}
-                          className="px-2 py-0.5 rounded hover:bg-gray-300 disabled:opacity-30 text-sm"
-                        >→</button>
+                        <button onClick={() => setAnswerCurrentPage(p => Math.min(answerNumPages, p + 1))} disabled={answerCurrentPage >= answerNumPages} className="px-2 py-0.5 rounded hover:bg-gray-300 disabled:opacity-30 text-sm">→</button>
                       </div>
                     )}
                   </div>
                   {answerPdfDocProxy ? (
-                    <PdfViewer
-                      pdfDoc={answerPdfDocProxy}
-                      pageNumber={Math.min(answerCurrentPage, answerNumPages)}
-                      scale={scale}
-                      activeTool="select"
-                      color={color}
-                      annotations={[]}
-                      onAnnotationsChange={() => {}}
-                      editMode="view"
-                      textEdits={[]}
-                    />
+                    <PdfViewer pdfDoc={answerPdfDocProxy} pageNumber={Math.min(answerCurrentPage, answerNumPages)} scale={scale} activeTool="select" color={color} annotations={[]} onAnnotationsChange={() => {}} editMode="view" textEdits={[]} />
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center gap-3">
                       <p className="text-gray-400 text-sm">尚未加载答案 PDF</p>
-                      <button
-                        onClick={() => answerInputRef.current?.click()}
-                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm"
-                      >
-                        加载答案
-                      </button>
+                      <button onClick={() => answerInputRef.current?.click()} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm">加载答案</button>
                     </div>
                   )}
                 </main>
-                {/* Right: Homework PDF */}
                 <main className="flex-1 overflow-auto bg-gray-200 p-4">
                   <div className="mb-2 text-center text-sm text-gray-500 font-medium">作业</div>
-                  <PdfViewer
-                    pdfDoc={pdfDocProxy}
-                    pageNumber={currentPage}
-                    scale={scale}
-                    activeTool={activeTool}
-                    color={color}
-                    annotations={pageAnnotations[currentPage] || []}
-                    onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))}
-                    editMode={editMode === 'annotate' ? 'annotate' : 'view'}
-                    onTextEdit={handleTextEdit}
-                    textEdits={textEdits[currentPage] || []}
-                  />
+                  <PdfViewer pdfDoc={pdfDocProxy} pageNumber={currentPage} scale={scale} activeTool={activeTool} color={color} annotations={pageAnnotations[currentPage] || []} onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))} editMode={editMode === 'annotate' ? 'annotate' : 'view'} onTextEdit={handleTextEdit} textEdits={textEdits[currentPage] || []} />
                 </main>
               </>
             ) : (
               <>
                 <main className="flex-1 overflow-auto bg-gray-200 p-8">
-                  <PdfViewer
-                    pdfDoc={pdfDocProxy}
-                    pageNumber={currentPage}
-                    scale={scale}
-                    activeTool={activeTool}
-                    color={color}
-                    annotations={pageAnnotations[currentPage] || []}
-                    onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))}
-                    editMode={editMode}
-                    onTextEdit={handleTextEdit}
-                    textEdits={textEdits[currentPage] || []}
-                  />
+                  <PdfViewer pdfDoc={pdfDocProxy} pageNumber={currentPage} scale={scale} activeTool={activeTool} color={color} annotations={pageAnnotations[currentPage] || []} onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))} editMode={editMode} onTextEdit={handleTextEdit} textEdits={textEdits[currentPage] || []} />
                 </main>
                 {editMode === 'form' && (
                   <FormPanel fields={formFields} onChange={setFormFields} />
