@@ -1,9 +1,10 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { PDFDocument, degrees, rgb } from 'pdf-lib'
 import PdfViewer from './components/PdfViewer'
 import Toolbar from './components/Toolbar'
 import FormPanel from './components/FormPanel'
+import { saveSession, loadSession, clearSession } from './utils/storage'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
 
@@ -77,6 +78,7 @@ export default function App() {
   const [scale, setScale] = useState(1.0)
 
   const [answerPdfDocProxy, setAnswerPdfDocProxy] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
+  const [answerPdfBytes, setAnswerPdfBytes] = useState<Uint8Array | null>(null)
   const [answerNumPages, setAnswerNumPages] = useState(0)
   const [answerCurrentPage, setAnswerCurrentPage] = useState(1)
 
@@ -113,7 +115,8 @@ export default function App() {
   }, [])
 
   const loadAnswerPdf = useCallback(async (bytes: Uint8Array) => {
-    const loadingTask = pdfjsLib.getDocument({ data: bytes })
+    setAnswerPdfBytes(new Uint8Array(bytes))
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes) })
     const pdf = await loadingTask.promise
     setAnswerPdfDocProxy(pdf)
     setAnswerNumPages(pdf.numPages)
@@ -263,6 +266,65 @@ export default function App() {
     }
   }, [editMode])
 
+  // Restore session on mount
+  const hasRestored = useRef(false)
+  useEffect(() => {
+    if (hasRestored.current) return
+    hasRestored.current = true
+
+    const session = loadSession()
+    if (!session) return
+
+    const restore = async () => {
+      if (session.pdfBytes) {
+        await loadPdf(session.pdfBytes)
+        if (session.pageAnnotations) setPageAnnotations(session.pageAnnotations)
+        if (session.textEdits) setTextEdits(session.textEdits)
+        if (session.currentPage) setCurrentPage(session.currentPage)
+        if (session.scale) setScale(session.scale)
+        if (session.gradeMode !== undefined) setGradeMode(session.gradeMode)
+        if (session.editMode) setEditMode(session.editMode as any)
+        if (session.activeTool) setActiveTool(session.activeTool as any)
+        if (session.color) setColor(session.color)
+        // Restore form field values after loadPdf sets the fields
+        if (session.formFields?.length) {
+          setFormFields(prev => {
+            if (!prev.length) return session.formFields
+            return prev.map(f => {
+              const saved = session.formFields.find((sf: any) => sf.name === f.name)
+              return saved ? { ...f, value: saved.value } : f
+            })
+          })
+        }
+      }
+      if (session.answerPdfBytes) {
+        await loadAnswerPdf(session.answerPdfBytes)
+        if (session.answerCurrentPage) setAnswerCurrentPage(session.answerCurrentPage)
+      }
+    }
+
+    restore()
+  }, [loadPdf, loadAnswerPdf])
+
+  // Auto-save session when state changes
+  useEffect(() => {
+    if (!pdfBytes) return
+    saveSession({
+      pdfBytes,
+      answerPdfBytes: answerPdfBytes || undefined,
+      pageAnnotations,
+      textEdits,
+      formFields,
+      currentPage,
+      answerCurrentPage,
+      scale,
+      gradeMode,
+      editMode,
+      activeTool,
+      color,
+    })
+  }, [pdfBytes, answerPdfBytes, pageAnnotations, textEdits, formFields, currentPage, answerCurrentPage, scale, gradeMode, editMode, activeTool, color])
+
   return (
     <div className="min-h-screen flex flex-col">
       <header className="bg-white border-b px-4 py-3 flex items-center justify-between">
@@ -272,6 +334,7 @@ export default function App() {
           <input ref={answerInputRef} type="file" accept=".pdf" className="hidden" onChange={handleAnswerFileChange} />
           <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">打开 PDF</button>
           <button onClick={handleDownload} disabled={!pdfBytes} className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 disabled:opacity-50 transition">下载</button>
+          <button onClick={() => { clearSession(); window.location.reload() }} className="px-4 py-2 bg-red-50 text-red-600 rounded hover:bg-red-100 transition text-sm">清除缓存</button>
         </div>
       </header>
 
