@@ -40,6 +40,7 @@ export default function App() {
   // Answer PDF
   const [answerPdfDocProxy, setAnswerPdfDocProxy] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [answerNumPages, setAnswerNumPages] = useState(0)
+  const [answerCurrentPage, setAnswerCurrentPage] = useState(1)
 
   const [gradeMode, setGradeMode] = useState(false)
   const [editMode, setEditMode] = useState<'view' | 'annotate' | 'form' | 'text'>('view')
@@ -246,11 +247,28 @@ export default function App() {
               <>
                 {/* Left: Answer PDF */}
                 <main className="flex-1 overflow-auto bg-gray-200 p-4 border-r border-gray-300">
-                  <div className="mb-2 text-center text-sm text-gray-500 font-medium">答案</div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm text-gray-500 font-medium">答案</span>
+                    {answerPdfDocProxy && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setAnswerCurrentPage(p => Math.max(1, p - 1))}
+                          disabled={answerCurrentPage <= 1}
+                          className="px-2 py-0.5 rounded hover:bg-gray-300 disabled:opacity-30 text-sm"
+                        >←</button>
+                        <span className="text-xs text-gray-500 min-w-[50px] text-center">{answerCurrentPage} / {answerNumPages}</span>
+                        <button
+                          onClick={() => setAnswerCurrentPage(p => Math.min(answerNumPages, p + 1))}
+                          disabled={answerCurrentPage >= answerNumPages}
+                          className="px-2 py-0.5 rounded hover:bg-gray-300 disabled:opacity-30 text-sm"
+                        >→</button>
+                      </div>
+                    )}
+                  </div>
                   {answerPdfDocProxy ? (
                     <PdfViewer
                       pdfDoc={answerPdfDocProxy}
-                      pageNumber={Math.min(currentPage, answerNumPages)}
+                      pageNumber={Math.min(answerCurrentPage, answerNumPages)}
                       scale={scale}
                       activeTool="select"
                       color={color}
