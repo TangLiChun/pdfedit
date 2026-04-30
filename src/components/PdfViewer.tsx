@@ -179,6 +179,7 @@ export default function PdfViewer({
         height: pageSize.height,
         selection: activeTool === 'select',
         backgroundColor: 'transparent',
+        enablePointerEvents: false,
       })
     } catch (err) {
       console.error('Fabric canvas init failed:', err)
