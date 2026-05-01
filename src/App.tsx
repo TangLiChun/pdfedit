@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
-import { PDFDocument, degrees, rgb } from 'pdf-lib'
+import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib'
+import mammoth from 'mammoth'
 import PdfViewer from './components/PdfViewer'
 import Toolbar from './components/Toolbar'
 import FormPanel from './components/FormPanel'
@@ -69,6 +70,53 @@ function hexToRgb(hex: string) {
   const g = parseInt(hex.slice(3, 5), 16) / 255
   const b = parseInt(hex.slice(5, 7), 16) / 255
   return rgb(r, g, b)
+}
+
+async function createPdfFromText(text: string): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l)
+  const fontSize = 11
+  const lineHeight = fontSize * 1.6
+  const margin = 50
+  const pageWidth = 595
+  const pageHeight = 842
+  const maxLineWidth = pageWidth - margin * 2
+
+  let currentPage = doc.addPage([pageWidth, pageHeight])
+  let y = pageHeight - margin
+
+  const wrapText = (line: string): string[] => {
+    const words = line.split('')
+    const result: string[] = []
+    let current = ''
+    for (const word of words) {
+      const test = current + word
+      const width = font.widthOfTextAtSize(test, fontSize)
+      if (width > maxLineWidth && current) {
+        result.push(current)
+        current = word
+      } else {
+        current = test
+      }
+    }
+    if (current) result.push(current)
+    return result.length ? result : [line]
+  }
+
+  for (const line of lines) {
+    const wrapped = wrapText(line)
+    for (const wl of wrapped) {
+      if (y < margin + lineHeight) {
+        currentPage = doc.addPage([pageWidth, pageHeight])
+        y = pageHeight - margin
+      }
+      currentPage.drawText(wl, { x: margin, y, size: fontSize, font })
+      y -= lineHeight
+    }
+  }
+
+  return new Uint8Array(await doc.save())
 }
 
 export default function App() {
@@ -145,10 +193,18 @@ export default function App() {
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const bytes = new Uint8Array(await file.arrayBuffer())
     setPageAnnotations({})
     setTextEdits({})
-    await loadPdf(bytes)
+
+    if (file.name.endsWith('.docx')) {
+      const arrayBuffer = await file.arrayBuffer()
+      const result = await mammoth.extractRawText({ arrayBuffer })
+      const pdfBytes = await createPdfFromText(result.value)
+      await loadPdf(pdfBytes)
+    } else {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      await loadPdf(bytes)
+    }
   }, [loadPdf])
 
   const handleAnswerFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -521,7 +577,7 @@ export default function App() {
       <header className="bg-white border-b px-4 py-3 flex items-center justify-between">
         <h1 className="text-xl font-bold">PDF Edit</h1>
         <div className="flex gap-2">
-          <input ref={fileInputRef} type="file" accept=".pdf" className="hidden" onChange={handleFileChange} />
+          <input ref={fileInputRef} type="file" accept=".pdf,.docx" className="hidden" onChange={handleFileChange} />
           <input ref={answerInputRef} type="file" accept=".pdf" className="hidden" onChange={handleAnswerFileChange} />
           <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">打开 PDF</button>
           <button onClick={handleDownload} disabled={!pdfBytes} className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 disabled:opacity-50 transition">下载</button>
@@ -604,8 +660,8 @@ export default function App() {
       ) : (
         <div className="flex-1 flex items-center justify-center">
           <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-blue-500 transition" onClick={() => fileInputRef.current?.click()}>
-            <p className="text-gray-500 text-lg">点击上传 PDF 文件</p>
-            <p className="text-gray-400 mt-2">或拖拽文件到此处</p>
+            <p className="text-gray-500 text-lg">点击上传 PDF / Word 文件</p>
+            <p className="text-gray-400 mt-2">支持 .pdf、.docx 格式</p>
           </div>
         </div>
       )}
