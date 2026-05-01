@@ -326,14 +326,18 @@ export default function App() {
 
   const handleRotatePage = useCallback(async () => {
     if (!pdfLibDoc || !pdfBytes) return
-    const pages = pdfLibDoc.getPages()
-    const page = pages[currentPage - 1]
-    const currentRotation = page.getRotation().angle
-    page.setRotation(degrees(currentRotation + 90))
-    const bytes = await pdfLibDoc.save()
-    const savedPage = currentPage
-    await loadPdf(bytes)
-    setCurrentPage(Math.min(savedPage, pages.length))
+    try {
+      const pages = pdfLibDoc.getPages()
+      const page = pages[currentPage - 1]
+      const currentRotation = page.getRotation().angle
+      page.setRotation(degrees(currentRotation + 90))
+      const bytes = await pdfLibDoc.save()
+      const savedPage = currentPage
+      await loadPdf(bytes)
+      setCurrentPage(Math.min(savedPage, pages.length))
+    } catch {
+      // Error already alerted in loadPdf
+    }
   }, [pdfLibDoc, pdfBytes, currentPage, loadPdf])
 
   const handleDeletePage = useCallback(async () => {
@@ -368,7 +372,11 @@ export default function App() {
       return updated
     })
 
-    await loadPdf(bytes)
+    try {
+      await loadPdf(bytes)
+    } catch {
+      // Error already alerted in loadPdf
+    }
   }, [pdfLibDoc, pdfBytes, currentPage, numPages, loadPdf])
 
   const handleDownload = useCallback(async () => {
@@ -433,14 +441,33 @@ export default function App() {
               color: hexToRgb(ann.color),
             })
             break
-          case 'arrow':
+          case 'arrow': {
+            const pdfY1 = height - ann.y1
+            const pdfY2 = height - ann.y2
             page.drawLine({
-              start: { x: ann.x1, y: height - ann.y1 },
-              end: { x: ann.x2, y: height - ann.y2 },
+              start: { x: ann.x1, y: pdfY1 },
+              end: { x: ann.x2, y: pdfY2 },
+              thickness: 2,
+              color: hexToRgb(ann.color),
+            })
+            const headLen = 15
+            const dx = ann.x2 - ann.x1
+            const dy = pdfY2 - pdfY1
+            const angle = Math.atan2(dy, dx)
+            page.drawLine({
+              start: { x: ann.x2, y: pdfY2 },
+              end: { x: ann.x2 - headLen * Math.cos(angle - Math.PI / 6), y: pdfY2 - headLen * Math.sin(angle - Math.PI / 6) },
+              thickness: 2,
+              color: hexToRgb(ann.color),
+            })
+            page.drawLine({
+              start: { x: ann.x2, y: pdfY2 },
+              end: { x: ann.x2 - headLen * Math.cos(angle + Math.PI / 6), y: pdfY2 - headLen * Math.sin(angle + Math.PI / 6) },
               thickness: 2,
               color: hexToRgb(ann.color),
             })
             break
+          }
           case 'brush':
             for (let i = 1; i < ann.points.length; i++) {
               page.drawLine({
