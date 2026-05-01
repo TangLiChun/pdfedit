@@ -261,8 +261,6 @@ export default function App() {
 
   const processFile = useCallback(async (file: File) => {
     try {
-      setPageAnnotations({})
-      setTextEdits({})
       if (file.name.toLowerCase().endsWith('.docx')) {
         const arrayBuffer = await file.arrayBuffer()
         const result = await mammoth.extractRawText({ arrayBuffer })
@@ -272,6 +270,8 @@ export default function App() {
         const bytes = new Uint8Array(await file.arrayBuffer())
         await loadPdf(bytes)
       }
+      setPageAnnotations({})
+      setTextEdits({})
     } catch {
       // Error already alerted in loadPdf or createPdfFromText
     }
@@ -460,6 +460,13 @@ export default function App() {
   }, [pdfLibDoc, formFields, textEdits, pageAnnotations])
 
   const handleTextEdit = useCallback((page: number, id: string, originalText: string, newText: string, x: number, y: number, fontSize: number) => {
+    if (newText === originalText) {
+      setTextEdits(prev => ({
+        ...prev,
+        [page]: (prev[page] || []).filter(e => e.id !== id)
+      }))
+      return
+    }
     setTextEdits(prev => ({
       ...prev,
       [page]: [
