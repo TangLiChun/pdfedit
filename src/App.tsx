@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
-import { PDFDocument, degrees, rgb, StandardFonts, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList } from 'pdf-lib'
+import { PDFDocument, degrees, rgb, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList } from 'pdf-lib'
 import mammoth from 'mammoth'
 import PdfViewer from './components/PdfViewer'
 import Toolbar from './components/Toolbar'
@@ -72,30 +72,44 @@ function hexToRgb(hex: string) {
   return rgb(r, g, b)
 }
 
+async function canvasToUint8(canvas: HTMLCanvasElement): Promise<Uint8Array> {
+  return new Promise((resolve) => {
+    canvas.toBlob(async (blob) => {
+      if (blob) {
+        const arrayBuffer = await blob.arrayBuffer()
+        resolve(new Uint8Array(arrayBuffer))
+      } else {
+        resolve(new Uint8Array())
+      }
+    }, 'image/png')
+  })
+}
+
 async function createPdfFromText(text: string): Promise<Uint8Array> {
-  const doc = await PDFDocument.create()
-  const font = await doc.embedFont(StandardFonts.Helvetica)
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l)
+  const lines = text.split('\n')
   const fontSize = 11
   const lineHeight = fontSize * 1.6
   const margin = 50
   const pageWidth = 595
   const pageHeight = 842
   const maxLineWidth = pageWidth - margin * 2
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
 
-  let currentPage = doc.addPage([pageWidth, pageHeight])
-  let y = pageHeight - margin
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.floor(pageWidth * dpr)
+  canvas.height = Math.floor(pageHeight * dpr)
+  const ctx = canvas.getContext('2d')!
+  ctx.scale(dpr, dpr)
+  ctx.font = `${fontSize}px sans-serif`
 
-  const wrapText = (line: string): string[] => {
-    const words = line.split('')
+  function wrapLine(line: string): string[] {
     const result: string[] = []
     let current = ''
-    for (const word of words) {
-      const test = current + word
-      const width = font.widthOfTextAtSize(test, fontSize)
-      if (width > maxLineWidth && current) {
+    for (const char of line) {
+      const test = current + char
+      if (ctx.measureText(test).width > maxLineWidth && current) {
         result.push(current)
-        current = word
+        current = char
       } else {
         current = test
       }
@@ -104,16 +118,44 @@ async function createPdfFromText(text: string): Promise<Uint8Array> {
     return result.length ? result : [line]
   }
 
-  for (const line of lines) {
-    const wrapped = wrapText(line)
-    for (const wl of wrapped) {
-      if (y < margin + lineHeight) {
-        currentPage = doc.addPage([pageWidth, pageHeight])
-        y = pageHeight - margin
-      }
-      currentPage.drawText(wl, { x: margin, y, size: fontSize, font })
-      y -= lineHeight
+  function clearPage() {
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, pageWidth, pageHeight)
+    ctx.fillStyle = '#000000'
+  }
+
+  const pageImages: Uint8Array[] = []
+  let currentY = margin
+  clearPage()
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd()
+    if (!line) {
+      currentY += lineHeight
+      continue
     }
+    const wrapped = wrapLine(line)
+    for (const wl of wrapped) {
+      if (currentY + lineHeight > pageHeight - margin) {
+        pageImages.push(await canvasToUint8(canvas))
+        clearPage()
+        currentY = margin
+      }
+      ctx.fillText(wl, margin, currentY + fontSize)
+      currentY += lineHeight
+    }
+  }
+
+  if (currentY > margin || pageImages.length === 0) {
+    pageImages.push(await canvasToUint8(canvas))
+  }
+
+  const doc = await PDFDocument.create()
+  for (const imgBytes of pageImages) {
+    if (imgBytes.length === 0) continue
+    const img = await doc.embedPng(imgBytes)
+    const page = doc.addPage([pageWidth, pageHeight])
+    page.drawImage(img, { x: 0, y: 0, width: pageWidth, height: pageHeight })
   }
 
   return new Uint8Array(await doc.save())
