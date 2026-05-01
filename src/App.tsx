@@ -170,6 +170,10 @@ export default function App() {
     setPdfLibDoc(libDoc)
     setNumPages(pdf.numPages)
     setCurrentPage(1)
+    setSearchResults([])
+    setSearchQuery('')
+    setCurrentSearchIndex(-1)
+    setAiGradeResult(null)
     try {
       const form = libDoc.getForm()
       const fields = form.getFields()
@@ -623,7 +627,7 @@ export default function App() {
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 's') {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault()
         if (pdfBytes) handleDownload()
       }

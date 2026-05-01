@@ -74,7 +74,7 @@ export default function Toolbar({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 'f') {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault()
         searchRef.current?.focus()
       }
