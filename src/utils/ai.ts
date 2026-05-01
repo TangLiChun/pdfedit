@@ -139,9 +139,10 @@ function parseAIGradeResult(text: string): AIGradeResult {
     jsonStr = codeBlockMatch[1].trim()
   }
   // Sometimes the model wraps JSON in extra text
-  const jsonMatch = jsonStr.match(/\{[\s\S]*\}/)
-  if (jsonMatch) {
-    jsonStr = jsonMatch[0]
+  const firstBrace = jsonStr.indexOf('{')
+  const lastBrace = jsonStr.lastIndexOf('}')
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    jsonStr = jsonStr.slice(firstBrace, lastBrace + 1)
   }
 
   try {

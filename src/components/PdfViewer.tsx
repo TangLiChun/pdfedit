@@ -233,7 +233,7 @@ export default function PdfViewer({
         return x >= minX && x <= maxX && y >= minY && y <= maxY
       }
       case 'text': {
-        const width = ann.text.length * 12
+        const width = ann.text.length * 20
         return x >= ann.x && x <= ann.x + width && y >= ann.y && y <= ann.y + 24
       }
       case 'brush': {
