@@ -131,6 +131,11 @@ async function createPdfFromText(text: string): Promise<Uint8Array> {
   for (const rawLine of lines) {
     const line = rawLine.trimEnd()
     if (!line) {
+      if (currentY + lineHeight > pageHeight - margin) {
+        pageImages.push(await canvasToUint8(canvas))
+        clearPage()
+        currentY = margin
+      }
       currentY += lineHeight
       continue
     }
