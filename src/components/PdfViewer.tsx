@@ -56,6 +56,11 @@ export default function PdfViewer({
   const [textInput, setTextInput] = useState<{ x: number; y: number; value: string; visible: boolean } | null>(null)
   const [isAICompleting, setIsAICompleting] = useState(false)
 
+  // Close text input when page changes
+  useEffect(() => {
+    setTextInput(null)
+  }, [pageNumber])
+
   const handleAIComplete = async () => {
     if (!textInput?.value.trim()) return
     const settings = loadAISettings()
@@ -399,6 +404,8 @@ export default function PdfViewer({
   }
 
   const handleDeleteKey = useCallback((e: KeyboardEvent) => {
+    const target = e.target as HTMLElement
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (selectedId) {
         onAnnotationsChange(annotations.filter(a => a.id !== selectedId))
@@ -411,6 +418,19 @@ export default function PdfViewer({
     window.addEventListener('keydown', handleDeleteKey)
     return () => window.removeEventListener('keydown', handleDeleteKey)
   }, [handleDeleteKey])
+
+  // Close text input when clicking outside
+  useEffect(() => {
+    if (!textInput?.visible) return
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('.text-input-popup')) {
+        setTextInput(null)
+      }
+    }
+    window.addEventListener('mousedown', handleClick)
+    return () => window.removeEventListener('mousedown', handleClick)
+  }, [textInput?.visible])
 
   const renderTextLayer = async (page: pdfjsLib.PDFPageProxy, viewport: pdfjsLib.PageViewport) => {
     const textLayerDiv = textLayerRef.current!
@@ -522,7 +542,7 @@ export default function PdfViewer({
         )}
         {/* Search highlights */}
         {searchHighlights && searchHighlights.length > 0 && pageSize.width > 0 && (
-          <div className="absolute top-0 left-0 z-25 pointer-events-none" style={{ width: pageSize.width, height: pageSize.height }}>
+          <div className="absolute top-0 left-0 z-[25] pointer-events-none" style={{ width: pageSize.width, height: pageSize.height }}>
             {searchHighlights.map((hl, idx) => (
               <div
                 key={idx}
@@ -541,7 +561,7 @@ export default function PdfViewer({
         )}
         {textInput?.visible && (
           <div
-            className="absolute z-30 flex items-center gap-1 bg-white shadow-lg border rounded p-1"
+            className="text-input-popup absolute z-30 flex items-center gap-1 bg-white shadow-lg border rounded p-1"
             style={{ left: textInput.x, top: textInput.y }}
           >
             <input

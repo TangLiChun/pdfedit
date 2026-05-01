@@ -252,6 +252,34 @@ export default function App() {
     if (!pdfLibDoc || !pdfBytes || numPages <= 1) return
     pdfLibDoc.removePage(currentPage - 1)
     const bytes = await pdfLibDoc.save()
+
+    // Re-index annotations and textEdits after page deletion
+    setPageAnnotations(prev => {
+      const updated: Record<number, AnnotationData[]> = {}
+      Object.entries(prev).forEach(([pageNum, anns]) => {
+        const p = parseInt(pageNum)
+        if (p < currentPage) {
+          updated[p] = anns
+        } else if (p > currentPage) {
+          updated[p - 1] = anns
+        }
+        // p === currentPage: discard
+      })
+      return updated
+    })
+    setTextEdits(prev => {
+      const updated: Record<number, TextEditData[]> = {}
+      Object.entries(prev).forEach(([pageNum, edits]) => {
+        const p = parseInt(pageNum)
+        if (p < currentPage) {
+          updated[p] = edits
+        } else if (p > currentPage) {
+          updated[p - 1] = edits.map(e => ({ ...e, page: p - 1 }))
+        }
+      })
+      return updated
+    })
+
     await loadPdf(bytes)
   }, [pdfLibDoc, pdfBytes, currentPage, numPages, loadPdf])
 
@@ -396,6 +424,7 @@ export default function App() {
           })
         }
       })
+      page.cleanup()
     }
     setSearchResults(results)
     setCurrentSearchIndex(results.length > 0 ? 0 : -1)
@@ -426,11 +455,13 @@ export default function App() {
       const answerPage = await answerPdfDocProxy.getPage(answerCurrentPage)
       const answerText = await answerPage.getTextContent()
       const answerTexts = (answerText.items as any[]).map(item => item.str).join(' ')
+      answerPage.cleanup()
 
       const studentPage = await pdfDocProxy.getPage(currentPage)
       const studentViewport = studentPage.getViewport({ scale: 1 })
       const studentText = await studentPage.getTextContent()
       const studentItems = studentText.items as any[]
+      studentPage.cleanup()
 
       const newAnns: AnnotationData[] = []
       studentItems.forEach((item, idx) => {
@@ -476,6 +507,7 @@ export default function App() {
       // Extract answer text
       const answerPage = await answerPdfDocProxy.getPage(answerCurrentPage)
       const answerTextContent = await answerPage.getTextContent()
+      answerPage.cleanup()
       const answerTexts = (answerTextContent.items as any[]).map((item: any) => item.str).join('\n')
 
       // Extract student text
@@ -484,6 +516,7 @@ export default function App() {
       const studentTextContent = await studentPage.getTextContent()
       const studentItems = studentTextContent.items as any[]
       const studentTexts = studentItems.map((item: any) => item.str).join('\n')
+      studentPage.cleanup()
 
       // Call AI
       const result = await aiGrade(settings, answerTexts, studentTexts)
