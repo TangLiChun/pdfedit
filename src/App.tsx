@@ -206,7 +206,7 @@ export default function App() {
   const processFile = useCallback(async (file: File) => {
     setPageAnnotations({})
     setTextEdits({})
-    if (file.name.endsWith('.docx')) {
+    if (file.name.toLowerCase().endsWith('.docx')) {
       const arrayBuffer = await file.arrayBuffer()
       const result = await mammoth.extractRawText({ arrayBuffer })
       const pdfBytes = await createPdfFromText(result.value)
@@ -221,6 +221,7 @@ export default function App() {
     const file = e.target.files?.[0]
     if (!file) return
     await processFile(file)
+    e.target.value = ''
   }, [processFile])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -238,7 +239,8 @@ export default function App() {
     setIsDragging(false)
     const file = e.dataTransfer.files[0]
     if (!file) return
-    if (file.name.endsWith('.pdf') || file.name.endsWith('.docx')) {
+    const lowerName = file.name.toLowerCase()
+    if (lowerName.endsWith('.pdf') || lowerName.endsWith('.docx')) {
       await processFile(file)
     }
   }, [processFile])
@@ -248,6 +250,7 @@ export default function App() {
     if (!file) return
     const bytes = new Uint8Array(await file.arrayBuffer())
     await loadAnswerPdf(bytes)
+    e.target.value = ''
   }, [loadAnswerPdf])
 
   const handleRotatePage = useCallback(async () => {
