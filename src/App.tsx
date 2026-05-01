@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
-import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib'
+import { PDFDocument, degrees, rgb, StandardFonts, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList } from 'pdf-lib'
 import mammoth from 'mammoth'
 import PdfViewer from './components/PdfViewer'
 import Toolbar from './components/Toolbar'
@@ -173,11 +173,19 @@ export default function App() {
     try {
       const form = libDoc.getForm()
       const fields = form.getFields()
-      setFormFields(fields.map(f => ({
-        name: f.getName(),
-        type: f.constructor.name.replace('PDF', '').replace('Field', ''),
-        value: '',
-      })))
+      setFormFields(fields.map(f => {
+        let type = 'Field'
+        if (f instanceof PDFTextField) type = 'Text'
+        else if (f instanceof PDFCheckBox) type = 'CheckBox'
+        else if (f instanceof PDFRadioGroup) type = 'RadioGroup'
+        else if (f instanceof PDFDropdown) type = 'Dropdown'
+        else if (f instanceof PDFOptionList) type = 'OptionList'
+        return {
+          name: f.getName(),
+          type,
+          value: '',
+        }
+      }))
     } catch {
       setFormFields([])
     }
@@ -340,7 +348,7 @@ export default function App() {
           case 'text':
             page.drawText(ann.text, {
               x: ann.x,
-              y: height - ann.y,
+              y: height - ann.y - 20,
               size: 20,
               color: hexToRgb(ann.color),
             })

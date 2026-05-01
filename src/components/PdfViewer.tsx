@@ -111,8 +111,10 @@ export default function PdfViewer({
       await page.render({ canvasContext: ctx, viewport }).promise
 
       if (editMode === 'text' && textLayerRef.current) {
-        renderTextLayer(page, viewport)
+        await renderTextLayer(page, viewport)
       }
+
+      page.cleanup()
 
       if (!cancelled) setLoading(false)
     }
