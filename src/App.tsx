@@ -488,25 +488,31 @@ export default function App() {
     const results: { page: number; x: number; y: number; width: number; height: number; text: string }[] = []
     const lowerQuery = query.toLowerCase()
     for (let p = 1; p <= numPages; p++) {
-      const page = await pdfDocProxy.getPage(p)
-      const viewport = page.getViewport({ scale: 1 })
-      const textContent = await page.getTextContent()
-      const items = textContent.items as any[]
-      items.forEach((item) => {
-        if (item.str.toLowerCase().includes(lowerQuery)) {
-          const tx = pdfjsLib.Util.transform(viewport.transform, item.transform)
-          const fontHeight = Math.hypot(tx[0], tx[1])
-          results.push({
-            page: p,
-            x: tx[4],
-            y: tx[5] - fontHeight,
-            width: item.str.length * fontHeight * 0.6,
-            height: fontHeight * 1.2,
-            text: item.str,
-          })
-        }
-      })
-      page.cleanup()
+      let page: pdfjsLib.PDFPageProxy | null = null
+      try {
+        page = await pdfDocProxy.getPage(p)
+        const viewport = page.getViewport({ scale: 1 })
+        const textContent = await page.getTextContent()
+        const items = textContent.items as any[]
+        items.forEach((item) => {
+          if (item.str.toLowerCase().includes(lowerQuery)) {
+            const tx = pdfjsLib.Util.transform(viewport.transform, item.transform)
+            const fontHeight = Math.hypot(tx[0], tx[1])
+            results.push({
+              page: p,
+              x: tx[4],
+              y: tx[5] - fontHeight,
+              width: item.str.length * fontHeight * 0.6,
+              height: fontHeight * 1.2,
+              text: item.str,
+            })
+          }
+        })
+      } catch {
+        // Skip pages that fail to load
+      } finally {
+        page?.cleanup()
+      }
     }
     setSearchResults(results)
     setCurrentSearchIndex(results.length > 0 ? 0 : -1)
@@ -570,6 +576,8 @@ export default function App() {
           [currentPage]: [...(prev[currentPage] || []), ...newAnns],
         }))
       }
+    } catch {
+      alert('自动比对失败，请检查答案和作业页面是否有效。')
     } finally {
       setIsAutoGrading(false)
     }

@@ -98,28 +98,32 @@ export default function PdfViewer({
 
     const render = async () => {
       setLoading(true)
-      const page = await pdfDoc.getPage(pageNumber)
-      if (cancelled || renderGenRef.current !== gen) {
+      try {
+        const page = await pdfDoc.getPage(pageNumber)
+        if (cancelled || renderGenRef.current !== gen) {
+          page.cleanup()
+          return
+        }
+
+        const viewport = page.getViewport({ scale })
+        const canvas = pdfCanvasRef.current!
+        canvas.width = viewport.width
+        canvas.height = viewport.height
+        setPageSize({ width: viewport.width, height: viewport.height })
+
+        const ctx = canvas.getContext('2d')!
+        await page.render({ canvasContext: ctx, viewport }).promise
+
+        if (editMode === 'text' && textLayerRef.current) {
+          await renderTextLayer(page, viewport, gen)
+        }
+
         page.cleanup()
-        return
+
+        if (!cancelled && renderGenRef.current === gen) setLoading(false)
+      } catch {
+        if (!cancelled && renderGenRef.current === gen) setLoading(false)
       }
-
-      const viewport = page.getViewport({ scale })
-      const canvas = pdfCanvasRef.current!
-      canvas.width = viewport.width
-      canvas.height = viewport.height
-      setPageSize({ width: viewport.width, height: viewport.height })
-
-      const ctx = canvas.getContext('2d')!
-      await page.render({ canvasContext: ctx, viewport }).promise
-
-      if (editMode === 'text' && textLayerRef.current) {
-        await renderTextLayer(page, viewport, gen)
-      }
-
-      page.cleanup()
-
-      if (!cancelled && renderGenRef.current === gen) setLoading(false)
     }
 
     render()
