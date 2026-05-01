@@ -253,7 +253,9 @@ export default function App() {
     const currentRotation = page.getRotation().angle
     page.setRotation(degrees(currentRotation + 90))
     const bytes = await pdfLibDoc.save()
+    const savedPage = currentPage
     await loadPdf(bytes)
+    setCurrentPage(Math.min(savedPage, pages.length))
   }, [pdfLibDoc, pdfBytes, currentPage, loadPdf])
 
   const handleDeletePage = useCallback(async () => {
