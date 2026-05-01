@@ -639,6 +639,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [pdfBytes, handleDownload])
 
+  // Clamp currentPage when numPages changes
+  useEffect(() => {
+    if (numPages > 0 && currentPage > numPages) {
+      setCurrentPage(numPages)
+    }
+  }, [numPages, currentPage])
+
   // Auto-save session when state changes
   useEffect(() => {
     if (!pdfBytes) return

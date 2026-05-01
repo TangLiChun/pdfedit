@@ -55,6 +55,7 @@ export default function PdfViewer({
 
   const [textInput, setTextInput] = useState<{ x: number; y: number; value: string; visible: boolean } | null>(null)
   const [isAICompleting, setIsAICompleting] = useState(false)
+  const renderGenRef = useRef(0)
 
   // Close text input when page changes
   useEffect(() => {
@@ -92,11 +93,12 @@ export default function PdfViewer({
   // Render PDF page
   useEffect(() => {
     let cancelled = false
+    const gen = ++renderGenRef.current
 
     const render = async () => {
       setLoading(true)
       const page = await pdfDoc.getPage(pageNumber)
-      if (cancelled) {
+      if (cancelled || renderGenRef.current !== gen) {
         page.cleanup()
         return
       }
@@ -111,12 +113,12 @@ export default function PdfViewer({
       await page.render({ canvasContext: ctx, viewport }).promise
 
       if (editMode === 'text' && textLayerRef.current) {
-        await renderTextLayer(page, viewport)
+        await renderTextLayer(page, viewport, gen)
       }
 
       page.cleanup()
 
-      if (!cancelled) setLoading(false)
+      if (!cancelled && renderGenRef.current === gen) setLoading(false)
     }
 
     render()
@@ -434,7 +436,8 @@ export default function PdfViewer({
     return () => window.removeEventListener('mousedown', handleClick)
   }, [textInput?.visible])
 
-  const renderTextLayer = async (page: pdfjsLib.PDFPageProxy, viewport: pdfjsLib.PageViewport) => {
+  const renderTextLayer = async (page: pdfjsLib.PDFPageProxy, viewport: pdfjsLib.PageViewport, expectedGen: number) => {
+    if (renderGenRef.current !== expectedGen) return
     const textLayerDiv = textLayerRef.current!
     textLayerDiv.innerHTML = ''
     textLayerDiv.style.width = `${viewport.width}px`
@@ -442,9 +445,11 @@ export default function PdfViewer({
 
     try {
       const textContent = await page.getTextContent()
+      if (renderGenRef.current !== expectedGen) return
       const items = textContent.items as any[]
 
       items.forEach((item) => {
+        if (renderGenRef.current !== expectedGen) return
         const tx = pdfjsLib.Util.transform(viewport.transform, item.transform)
         const fontHeight = Math.hypot(tx[0], tx[1])
         const angle = Math.atan2(tx[1], tx[0])
