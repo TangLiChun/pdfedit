@@ -158,6 +158,10 @@ async function createPdfFromText(text: string): Promise<Uint8Array> {
     page.drawImage(img, { x: 0, y: 0, width: pageWidth, height: pageHeight })
   }
 
+  if (doc.getPageCount() === 0) {
+    doc.addPage([pageWidth, pageHeight])
+  }
+
   return new Uint8Array(await doc.save())
 }
 
@@ -204,58 +208,72 @@ export default function App() {
   }, [searchResults, currentPage, currentSearchIndex])
 
   const loadPdf = useCallback(async (bytes: Uint8Array) => {
-    setPdfBytes(new Uint8Array(bytes))
-    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes) })
-    const pdf = await loadingTask.promise
-    setPdfDocProxy(pdf)
-    const libDoc = await PDFDocument.load(new Uint8Array(bytes))
-    setPdfLibDoc(libDoc)
-    setNumPages(pdf.numPages)
-    setCurrentPage(1)
-    setSearchResults([])
-    setSearchQuery('')
-    setCurrentSearchIndex(-1)
-    setAiGradeResult(null)
     try {
-      const form = libDoc.getForm()
-      const fields = form.getFields()
-      setFormFields(fields.map(f => {
-        let type = 'Field'
-        if (f instanceof PDFTextField) type = 'Text'
-        else if (f instanceof PDFCheckBox) type = 'CheckBox'
-        else if (f instanceof PDFRadioGroup) type = 'RadioGroup'
-        else if (f instanceof PDFDropdown) type = 'Dropdown'
-        else if (f instanceof PDFOptionList) type = 'OptionList'
-        return {
-          name: f.getName(),
-          type,
-          value: '',
-        }
-      }))
+      setPdfBytes(new Uint8Array(bytes))
+      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes) })
+      const pdf = await loadingTask.promise
+      setPdfDocProxy(pdf)
+      const libDoc = await PDFDocument.load(new Uint8Array(bytes))
+      setPdfLibDoc(libDoc)
+      setNumPages(pdf.numPages)
+      setCurrentPage(1)
+      setSearchResults([])
+      setSearchQuery('')
+      setCurrentSearchIndex(-1)
+      setAiGradeResult(null)
+      try {
+        const form = libDoc.getForm()
+        const fields = form.getFields()
+        setFormFields(fields.map(f => {
+          let type = 'Field'
+          if (f instanceof PDFTextField) type = 'Text'
+          else if (f instanceof PDFCheckBox) type = 'CheckBox'
+          else if (f instanceof PDFRadioGroup) type = 'RadioGroup'
+          else if (f instanceof PDFDropdown) type = 'Dropdown'
+          else if (f instanceof PDFOptionList) type = 'OptionList'
+          return {
+            name: f.getName(),
+            type,
+            value: '',
+          }
+        }))
+      } catch {
+        setFormFields([])
+      }
     } catch {
-      setFormFields([])
+      alert('无法加载此文件，请确认是有效的 PDF 或 Word 文档。')
+      throw new Error('Failed to load PDF')
     }
   }, [])
 
   const loadAnswerPdf = useCallback(async (bytes: Uint8Array) => {
-    setAnswerPdfBytes(new Uint8Array(bytes))
-    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes) })
-    const pdf = await loadingTask.promise
-    setAnswerPdfDocProxy(pdf)
-    setAnswerNumPages(pdf.numPages)
+    try {
+      setAnswerPdfBytes(new Uint8Array(bytes))
+      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes) })
+      const pdf = await loadingTask.promise
+      setAnswerPdfDocProxy(pdf)
+      setAnswerNumPages(pdf.numPages)
+    } catch {
+      alert('无法加载答案文件，请确认是有效的 PDF。')
+      throw new Error('Failed to load answer PDF')
+    }
   }, [])
 
   const processFile = useCallback(async (file: File) => {
-    setPageAnnotations({})
-    setTextEdits({})
-    if (file.name.toLowerCase().endsWith('.docx')) {
-      const arrayBuffer = await file.arrayBuffer()
-      const result = await mammoth.extractRawText({ arrayBuffer })
-      const pdfBytes = await createPdfFromText(result.value)
-      await loadPdf(pdfBytes)
-    } else {
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      await loadPdf(bytes)
+    try {
+      setPageAnnotations({})
+      setTextEdits({})
+      if (file.name.toLowerCase().endsWith('.docx')) {
+        const arrayBuffer = await file.arrayBuffer()
+        const result = await mammoth.extractRawText({ arrayBuffer })
+        const pdfBytes = await createPdfFromText(result.value)
+        await loadPdf(pdfBytes)
+      } else {
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        await loadPdf(bytes)
+      }
+    } catch {
+      // Error already alerted in loadPdf or createPdfFromText
     }
   }, [loadPdf])
 
@@ -288,11 +306,16 @@ export default function App() {
   }, [processFile])
 
   const handleAnswerFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    await loadAnswerPdf(bytes)
-    e.target.value = ''
+    try {
+      const file = e.target.files?.[0]
+      if (!file) return
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      await loadAnswerPdf(bytes)
+    } catch {
+      // Error already alerted in loadAnswerPdf
+    } finally {
+      e.target.value = ''
+    }
   }, [loadAnswerPdf])
 
   const handleRotatePage = useCallback(async () => {
