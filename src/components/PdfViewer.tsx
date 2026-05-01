@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import type { AnnotationData, TextEditData } from '../App'
+import { aiComplete, loadAISettings } from '../utils/ai'
 
 interface PdfViewerProps {
   pdfDoc: pdfjsLib.PDFDocumentProxy
@@ -53,6 +54,25 @@ export default function PdfViewer({
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null)
 
   const [textInput, setTextInput] = useState<{ x: number; y: number; value: string; visible: boolean } | null>(null)
+  const [isAICompleting, setIsAICompleting] = useState(false)
+
+  const handleAIComplete = async () => {
+    if (!textInput?.value.trim()) return
+    const settings = loadAISettings()
+    if (!settings?.apiKey) {
+      alert('请先配置 AI API Key')
+      return
+    }
+    setIsAICompleting(true)
+    try {
+      const completed = await aiComplete(settings, textInput.value)
+      setTextInput({ ...textInput, value: textInput.value + completed })
+    } catch (err: any) {
+      alert('AI 补全失败: ' + (err.message || '未知错误'))
+    } finally {
+      setIsAICompleting(false)
+    }
+  }
 
   const getCanvasPoint = useCallback((e: React.MouseEvent | MouseEvent): { x: number; y: number } | null => {
     const canvas = annoCanvasRef.current
@@ -536,6 +556,14 @@ export default function PdfViewer({
               }}
             />
             <button onClick={handleTextSubmit} className="px-2 py-1 bg-blue-600 text-white rounded text-sm">OK</button>
+            <button
+              onClick={handleAIComplete}
+              disabled={isAICompleting || !textInput.value.trim()}
+              className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded text-sm hover:bg-indigo-100 disabled:opacity-50"
+              title="AI 续写"
+            >
+              {isAICompleting ? '...' : 'AI'}
+            </button>
           </div>
         )}
       </div>

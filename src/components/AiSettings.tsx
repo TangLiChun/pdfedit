@@ -52,15 +52,34 @@ export default function AiSettings({ onClose }: AiSettingsProps) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">模型</label>
-            <select
-              value={settings.model}
-              onChange={e => setSettings({ ...settings, model: e.target.value })}
-              className="w-full border rounded px-3 py-2 text-sm"
-            >
-              {provider.models.map(m => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                value={provider.models.includes(settings.model) ? settings.model : '__custom__'}
+                onChange={e => {
+                  const v = e.target.value
+                  if (v === '__custom__') {
+                    setSettings({ ...settings, model: '' })
+                  } else {
+                    setSettings({ ...settings, model: v })
+                  }
+                }}
+                className="border rounded px-3 py-2 text-sm"
+              >
+                {provider.models.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+                <option value="__custom__">自定义...</option>
+              </select>
+              {!provider.models.includes(settings.model) && (
+                <input
+                  type="text"
+                  value={settings.model}
+                  onChange={e => setSettings({ ...settings, model: e.target.value })}
+                  placeholder="输入模型名称"
+                  className="flex-1 border rounded px-3 py-2 text-sm"
+                />
+              )}
+            </div>
           </div>
 
           <div>

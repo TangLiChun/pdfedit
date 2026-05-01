@@ -166,3 +166,66 @@ function parseAIGradeResult(text: string): AIGradeResult {
     }
   }
 }
+
+export async function aiComplete(
+  settings: AISettings,
+  existingText: string,
+  context?: string
+): Promise<string> {
+  const provider = AI_PROVIDERS.find(p => p.name === settings.provider) || AI_PROVIDERS[0]
+  const prompt = `请根据以下已有内容，继续补全或续写。只返回续写部分，不要重复已有内容，也不要添加解释。
+
+${context ? '上下文：' + context + '\n\n' : ''}已有内容：
+${existingText}
+
+请续写：`
+
+  let responseText: string
+
+  if (settings.provider === 'Claude') {
+    const res = await fetch(provider.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': settings.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: settings.model || provider.defaultModel,
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(`Claude API error: ${res.status} ${err}`)
+    }
+    const data = await res.json()
+    responseText = data.content?.[0]?.text || ''
+  } else {
+    const res = await fetch(provider.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: settings.model || provider.defaultModel,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(`OpenAI API error: ${res.status} ${err}`)
+    }
+    const data = await res.json()
+    responseText = data.choices?.[0]?.message?.content || ''
+  }
+
+  // Clean up: remove quotes, "续写：" prefix, etc.
+  let cleaned = responseText.trim()
+  cleaned = cleaned.replace(/^['"]+|['"]+$/g, '')
+  cleaned = cleaned.replace(/^续写[：:](\n)?/m, '')
+  return cleaned.trim()
+}
