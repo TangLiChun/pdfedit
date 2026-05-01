@@ -150,6 +150,7 @@ export default function App() {
   const [isAIGrading, setIsAIGrading] = useState(false)
   const [showAISettings, setShowAISettings] = useState(false)
   const [aiGradeResult, setAiGradeResult] = useState<{ score: number; comments: string } | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
 
   const currentPageSearchHighlights = useMemo(() => {
     const pageResults = searchResults.filter(r => r.page === currentPage)
@@ -190,12 +191,9 @@ export default function App() {
     setAnswerNumPages(pdf.numPages)
   }, [])
 
-  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const processFile = useCallback(async (file: File) => {
     setPageAnnotations({})
     setTextEdits({})
-
     if (file.name.endsWith('.docx')) {
       const arrayBuffer = await file.arrayBuffer()
       const result = await mammoth.extractRawText({ arrayBuffer })
@@ -206,6 +204,32 @@ export default function App() {
       await loadPdf(bytes)
     }
   }, [loadPdf])
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    await processFile(file)
+  }, [processFile])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+  }, [])
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const file = e.dataTransfer.files[0]
+    if (!file) return
+    if (file.name.endsWith('.pdf') || file.name.endsWith('.docx')) {
+      await processFile(file)
+    }
+  }, [processFile])
 
   const handleAnswerFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -553,6 +577,18 @@ export default function App() {
     restore()
   }, [loadPdf, loadAnswerPdf])
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault()
+        if (pdfBytes) handleDownload()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [pdfBytes, handleDownload])
+
   // Auto-save session when state changes
   useEffect(() => {
     if (!pdfBytes) return
@@ -573,7 +609,20 @@ export default function App() {
   }, [pdfBytes, answerPdfBytes, pageAnnotations, textEdits, formFields, currentPage, answerCurrentPage, scale, gradeMode, editMode, activeTool, color])
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div
+      className={`min-h-screen flex flex-col ${isDragging ? 'bg-blue-50' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="fixed inset-0 bg-blue-500/20 z-50 flex items-center justify-center pointer-events-none">
+          <div className="bg-white rounded-lg shadow-xl px-8 py-6 text-center">
+            <p className="text-xl font-bold text-blue-600">释放以上传文件</p>
+            <p className="text-gray-500 mt-2">支持 PDF、Word 格式</p>
+          </div>
+        </div>
+      )}
       <header className="bg-white border-b px-4 py-3 flex items-center justify-between">
         <h1 className="text-xl font-bold">PDF Edit</h1>
         <div className="flex gap-2">

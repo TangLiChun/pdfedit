@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 type Tool = 'select' | 'rect' | 'arrow' | 'text' | 'brush'
 type EditMode = 'view' | 'annotate' | 'form' | 'text'
@@ -65,6 +65,33 @@ export default function Toolbar({
   onOpenAISettings,
 }: ToolbarProps) {
   const [localSearch, setLocalSearch] = useState(searchQuery)
+  const [pageInput, setPageInput] = useState(String(currentPage))
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setPageInput(String(currentPage))
+  }, [currentPage])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'f') {
+        e.preventDefault()
+        searchRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  const handlePageSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const page = parseInt(pageInput, 10)
+    if (!isNaN(page) && page >= 1 && page <= numPages) {
+      onPageChange(page)
+    } else {
+      setPageInput(String(currentPage))
+    }
+  }
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -81,9 +108,16 @@ export default function Toolbar({
         >
           ←
         </button>
-        <span className="text-sm min-w-[60px] text-center">
-          {currentPage} / {numPages}
-        </span>
+        <form onSubmit={handlePageSubmit} className="flex items-center gap-1">
+          <input
+            type="text"
+            value={pageInput}
+            onChange={e => setPageInput(e.target.value)}
+            onBlur={() => setPageInput(String(currentPage))}
+            className="w-10 text-sm text-center border rounded px-1 py-0.5 focus:outline-none focus:border-blue-400"
+          />
+          <span className="text-sm text-gray-400">/ {numPages}</span>
+        </form>
         <button
           onClick={() => onPageChange(Math.min(numPages, currentPage + 1))}
           disabled={currentPage >= numPages}
@@ -254,6 +288,7 @@ export default function Toolbar({
       {/* Search */}
       <form onSubmit={handleSearchSubmit} className="flex items-center gap-1">
         <input
+          ref={searchRef}
           type="text"
           placeholder="搜索文本..."
           value={localSearch}
