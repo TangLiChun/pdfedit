@@ -5,6 +5,8 @@ import PdfViewer from './components/PdfViewer'
 import Toolbar from './components/Toolbar'
 import FormPanel from './components/FormPanel'
 import { saveSession, loadSession, clearSession } from './utils/storage'
+import { aiGrade, loadAISettings } from './utils/ai'
+import AiSettings from './components/AiSettings'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
 
@@ -97,6 +99,9 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<{ page: number; x: number; y: number; width: number; height: number; text: string }[]>([])
   const [currentSearchIndex, setCurrentSearchIndex] = useState(-1)
   const [isAutoGrading, setIsAutoGrading] = useState(false)
+  const [isAIGrading, setIsAIGrading] = useState(false)
+  const [showAISettings, setShowAISettings] = useState(false)
+  const [aiGradeResult, setAiGradeResult] = useState<{ score: number; comments: string } | null>(null)
 
   const currentPageSearchHighlights = useMemo(() => {
     const pageResults = searchResults.filter(r => r.page === currentPage)
@@ -377,6 +382,81 @@ export default function App() {
     }
   }, [pdfDocProxy, answerPdfDocProxy, answerCurrentPage, currentPage])
 
+  // AI Grade
+  const handleAIGrade = useCallback(async () => {
+    if (!pdfDocProxy || !answerPdfDocProxy) return
+    const settings = loadAISettings()
+    if (!settings || !settings.apiKey) {
+      setShowAISettings(true)
+      return
+    }
+    setIsAIGrading(true)
+    setAiGradeResult(null)
+    try {
+      // Extract answer text
+      const answerPage = await answerPdfDocProxy.getPage(answerCurrentPage)
+      const answerTextContent = await answerPage.getTextContent()
+      const answerTexts = (answerTextContent.items as any[]).map((item: any) => item.str).join('\n')
+
+      // Extract student text
+      const studentPage = await pdfDocProxy.getPage(currentPage)
+      const studentViewport = studentPage.getViewport({ scale: 1 })
+      const studentTextContent = await studentPage.getTextContent()
+      const studentItems = studentTextContent.items as any[]
+      const studentTexts = studentItems.map((item: any) => item.str).join('\n')
+
+      // Call AI
+      const result = await aiGrade(settings, answerTexts, studentTexts)
+
+      // Add annotations for incorrect items
+      const newAnns: AnnotationData[] = []
+      studentItems.forEach((item: any, idx: number) => {
+        const str = item.str.trim()
+        if (!str) return
+        // Find if AI flagged this text
+        const detail = result.details.find((d: any) => str.includes(d.text) || d.text.includes(str))
+        if (detail && !detail.isCorrect) {
+          const tx = pdfjsLib.Util.transform(studentViewport.transform, item.transform)
+          const fontHeight = Math.hypot(tx[0], tx[1])
+          newAnns.push({
+            id: `ai-grade-${Date.now()}-${idx}`,
+            type: 'rect',
+            x: tx[4] - 2,
+            y: tx[5] - fontHeight - 2,
+            w: str.length * fontHeight * 0.6 + 4,
+            h: fontHeight + 4,
+            color: '#dc2626',
+          })
+        }
+      })
+
+      // Add overall score as text annotation at top-left
+      if (result.overallScore >= 0) {
+        newAnns.push({
+          id: `ai-score-${Date.now()}`,
+          type: 'text',
+          x: 20,
+          y: 30,
+          text: `AI 评分: ${result.overallScore}分`,
+          color: '#dc2626',
+        })
+      }
+
+      if (newAnns.length > 0) {
+        setPageAnnotations(prev => ({
+          ...prev,
+          [currentPage]: [...(prev[currentPage] || []), ...newAnns],
+        }))
+      }
+
+      setAiGradeResult({ score: result.overallScore, comments: result.comments })
+    } catch (err: any) {
+      alert('AI 批改失败: ' + (err.message || '未知错误'))
+    } finally {
+      setIsAIGrading(false)
+    }
+  }, [pdfDocProxy, answerPdfDocProxy, answerCurrentPage, currentPage])
+
   // Restore session on mount
   const hasRestored = useRef(false)
   useEffect(() => {
@@ -477,6 +557,9 @@ export default function App() {
             onSearchPrev={handleSearchPrev}
             onAutoGrade={handleAutoGrade}
             isGrading={isAutoGrading}
+            onAIGrade={handleAIGrade}
+            isAIGrading={isAIGrading}
+            onOpenAISettings={() => setShowAISettings(true)}
           />
           <div className="flex flex-1 overflow-hidden">
             {gradeMode ? (
@@ -524,6 +607,18 @@ export default function App() {
             <p className="text-gray-500 text-lg">点击上传 PDF 文件</p>
             <p className="text-gray-400 mt-2">或拖拽文件到此处</p>
           </div>
+        </div>
+      )}
+
+      {showAISettings && <AiSettings onClose={() => setShowAISettings(false)} />}
+
+      {aiGradeResult && (
+        <div className="fixed bottom-4 right-4 bg-white shadow-lg border rounded-lg p-4 z-40 max-w-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-bold text-lg text-indigo-700">AI 评分: {aiGradeResult.score}分</span>
+            <button onClick={() => setAiGradeResult(null)} className="text-gray-400 hover:text-gray-600">✕</button>
+          </div>
+          <p className="text-sm text-gray-700 whitespace-pre-wrap">{aiGradeResult.comments}</p>
         </div>
       )}
     </div>

@@ -29,6 +29,9 @@ interface ToolbarProps {
   onSearchPrev?: () => void
   onAutoGrade?: () => void
   isGrading?: boolean
+  onAIGrade?: () => void
+  isAIGrading?: boolean
+  onOpenAISettings?: () => void
 }
 
 export default function Toolbar({
@@ -57,6 +60,9 @@ export default function Toolbar({
   onSearchPrev,
   onAutoGrade,
   isGrading,
+  onAIGrade,
+  isAIGrading,
+  onOpenAISettings,
 }: ToolbarProps) {
   const [localSearch, setLocalSearch] = useState(searchQuery)
 
@@ -225,6 +231,20 @@ export default function Toolbar({
             className="px-3 py-1 rounded text-sm bg-orange-50 text-orange-700 hover:bg-orange-100 transition disabled:opacity-50"
           >
             {isGrading ? '比对中...' : '自动比对'}
+          </button>
+          <button
+            onClick={onAIGrade}
+            disabled={isAIGrading}
+            className="px-3 py-1 rounded text-sm bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition disabled:opacity-50"
+          >
+            {isAIGrading ? 'AI 批改中...' : 'AI 批改'}
+          </button>
+          <button
+            onClick={onOpenAISettings}
+            className="px-2 py-1 rounded text-sm text-gray-500 hover:bg-gray-100 transition"
+            title="AI 设置"
+          >
+            ⚙️
           </button>
         </>
       )}
