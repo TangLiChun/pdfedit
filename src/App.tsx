@@ -214,11 +214,12 @@ export default function App() {
 
   const loadPdf = useCallback(async (bytes: Uint8Array) => {
     try {
-      setPdfBytes(new Uint8Array(bytes))
       const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes) })
       const pdf = await loadingTask.promise
-      setPdfDocProxy(pdf)
       const libDoc = await PDFDocument.load(new Uint8Array(bytes))
+      // Only set state after both validations pass
+      setPdfBytes(new Uint8Array(bytes))
+      setPdfDocProxy(pdf)
       setPdfLibDoc(libDoc)
       setNumPages(pdf.numPages)
       setCurrentPage(1)
@@ -253,9 +254,9 @@ export default function App() {
 
   const loadAnswerPdf = useCallback(async (bytes: Uint8Array) => {
     try {
-      setAnswerPdfBytes(new Uint8Array(bytes))
       const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes) })
       const pdf = await loadingTask.promise
+      setAnswerPdfBytes(new Uint8Array(bytes))
       setAnswerPdfDocProxy(pdf)
       setAnswerNumPages(pdf.numPages)
     } catch {
