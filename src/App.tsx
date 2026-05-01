@@ -825,7 +825,7 @@ export default function App() {
           <div className="flex flex-1 overflow-hidden">
             {gradeMode ? (
               <>
-                <main className="flex-1 overflow-auto bg-gray-200 p-4 border-r border-gray-300">
+                <section className="flex-1 overflow-auto bg-gray-200 p-4 border-r border-gray-300">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm text-gray-500 font-medium">答案</span>
                     {answerPdfDocProxy && (
@@ -844,11 +844,11 @@ export default function App() {
                       <button onClick={() => answerInputRef.current?.click()} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm">加载答案</button>
                     </div>
                   )}
-                </main>
-                <main className="flex-1 overflow-auto bg-gray-200 p-4">
+                </section>
+                <section className="flex-1 overflow-auto bg-gray-200 p-4">
                   <div className="mb-2 text-center text-sm text-gray-500 font-medium">作业</div>
                   <PdfViewer pdfDoc={pdfDocProxy} pageNumber={currentPage} scale={scale} activeTool={activeTool} color={color} annotations={pageAnnotations[currentPage] || []} onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))} editMode={editMode === 'annotate' ? 'annotate' : 'view'} onTextEdit={handleTextEdit} textEdits={textEdits[currentPage] || []} searchHighlights={currentPageSearchHighlights} />
-                </main>
+                </section>
               </>
             ) : (
               <>

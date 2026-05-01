@@ -443,7 +443,8 @@ export default function PdfViewer({
 
   const renderTextLayer = async (page: pdfjsLib.PDFPageProxy, viewport: pdfjsLib.PageViewport, expectedGen: number) => {
     if (renderGenRef.current !== expectedGen) return
-    const textLayerDiv = textLayerRef.current!
+    const textLayerDiv = textLayerRef.current
+    if (!textLayerDiv) return
     textLayerDiv.innerHTML = ''
     textLayerDiv.style.width = `${viewport.width}px`
     textLayerDiv.style.height = `${viewport.height}px`
