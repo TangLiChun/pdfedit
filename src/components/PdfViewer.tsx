@@ -57,9 +57,10 @@ export default function PdfViewer({
   const [isAICompleting, setIsAICompleting] = useState(false)
   const renderGenRef = useRef(0)
 
-  // Close text input when page changes
+  // Clear selection and text input when page changes
   useEffect(() => {
     setTextInput(null)
+    setSelectedId(null)
   }, [pageNumber])
 
   const handleAIComplete = async () => {

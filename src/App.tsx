@@ -669,6 +669,19 @@ export default function App() {
     restore()
   }, [loadPdf, loadAnswerPdf])
 
+  // Cleanup pdf.js document proxies on unmount or change
+  useEffect(() => {
+    return () => {
+      pdfDocProxy?.destroy().catch(() => {})
+    }
+  }, [pdfDocProxy])
+
+  useEffect(() => {
+    return () => {
+      answerPdfDocProxy?.destroy().catch(() => {})
+    }
+  }, [answerPdfDocProxy])
+
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -817,7 +830,7 @@ export default function App() {
       {showAISettings && <AiSettings onClose={() => setShowAISettings(false)} />}
 
       {aiGradeResult && (
-        <div className="fixed bottom-4 right-4 bg-white shadow-lg border rounded-lg p-4 z-40 max-w-sm">
+        <div className="fixed bottom-4 right-4 bg-white shadow-lg border rounded-lg p-4 z-40 max-w-sm max-h-96 overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
             <span className="font-bold text-lg text-indigo-700">AI 评分: {aiGradeResult.score}分</span>
             <button onClick={() => setAiGradeResult(null)} className="text-gray-400 hover:text-gray-600">✕</button>
