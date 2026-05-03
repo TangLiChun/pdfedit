@@ -202,6 +202,7 @@ export default function App() {
   const [showAISettings, setShowAISettings] = useState(false)
   const [aiGradeResult, setAiGradeResult] = useState<{ score: number; comments: string } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [isAnswerDragging, setIsAnswerDragging] = useState(false)
 
   const currentPageSearchHighlights = useMemo(() => {
     const pageResults = searchResults.filter(r => r.page === currentPage)
@@ -259,6 +260,7 @@ export default function App() {
       setAnswerPdfBytes(new Uint8Array(bytes))
       setAnswerPdfDocProxy(pdf)
       setAnswerNumPages(pdf.numPages)
+      setAnswerCurrentPage(1)
     } catch {
       alert('无法加载答案文件，请确认是有效的 PDF。')
       throw new Error('Failed to load answer PDF')
@@ -311,18 +313,28 @@ export default function App() {
     }
   }, [processFile])
 
-  const handleAnswerFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const processAnswerFile = useCallback(async (file: File) => {
     try {
-      const file = e.target.files?.[0]
-      if (!file) return
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      await loadAnswerPdf(bytes)
+      if (file.name.toLowerCase().endsWith('.docx')) {
+        const arrayBuffer = await file.arrayBuffer()
+        const result = await mammoth.extractRawText({ arrayBuffer })
+        const pdfBytes = await createPdfFromText(result.value)
+        await loadAnswerPdf(pdfBytes)
+      } else {
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        await loadAnswerPdf(bytes)
+      }
     } catch {
-      // Error already alerted in loadAnswerPdf
-    } finally {
-      e.target.value = ''
+      // Error already alerted in loadAnswerPdf or createPdfFromText
     }
   }, [loadAnswerPdf])
+
+  const handleAnswerFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    await processAnswerFile(file)
+    e.target.value = ''
+  }, [processAnswerFile])
 
   const handleRotatePage = useCallback(async () => {
     if (!pdfLibDoc || !pdfBytes) return
@@ -371,6 +383,12 @@ export default function App() {
       })
       return updated
     })
+
+    // Clear stale search and grade results
+    setSearchResults([])
+    setSearchQuery('')
+    setCurrentSearchIndex(-1)
+    setAiGradeResult(null)
 
     try {
       await loadPdf(bytes)
@@ -489,7 +507,7 @@ export default function App() {
     a.href = url
     a.download = 'edited.pdf'
     a.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
   }, [pdfLibDoc, formFields, textEdits, pageAnnotations])
 
   const handleTextEdit = useCallback((page: number, id: string, originalText: string, newText: string, x: number, y: number, fontSize: number) => {
@@ -579,17 +597,17 @@ export default function App() {
   const handleAutoGrade = useCallback(async () => {
     if (!pdfDocProxy || !answerPdfDocProxy) return
     setIsAutoGrading(true)
+    let answerPage: pdfjsLib.PDFPageProxy | null = null
+    let studentPage: pdfjsLib.PDFPageProxy | null = null
     try {
-      const answerPage = await answerPdfDocProxy.getPage(answerCurrentPage)
+      answerPage = await answerPdfDocProxy.getPage(answerCurrentPage)
       const answerText = await answerPage.getTextContent()
       const answerTexts = (answerText.items as any[]).map(item => item.str).join(' ')
-      answerPage.cleanup()
 
-      const studentPage = await pdfDocProxy.getPage(currentPage)
+      studentPage = await pdfDocProxy.getPage(currentPage)
       const studentViewport = studentPage.getViewport({ scale: 1 })
       const studentText = await studentPage.getTextContent()
       const studentItems = studentText.items as any[]
-      studentPage.cleanup()
 
       const newAnns: AnnotationData[] = []
       studentItems.forEach((item, idx) => {
@@ -619,6 +637,8 @@ export default function App() {
     } catch {
       alert('自动比对失败，请检查答案和作业页面是否有效。')
     } finally {
+      answerPage?.cleanup()
+      studentPage?.cleanup()
       setIsAutoGrading(false)
     }
   }, [pdfDocProxy, answerPdfDocProxy, answerCurrentPage, currentPage])
@@ -633,20 +653,20 @@ export default function App() {
     }
     setIsAIGrading(true)
     setAiGradeResult(null)
+    let answerPage: pdfjsLib.PDFPageProxy | null = null
+    let studentPage: pdfjsLib.PDFPageProxy | null = null
     try {
       // Extract answer text
-      const answerPage = await answerPdfDocProxy.getPage(answerCurrentPage)
+      answerPage = await answerPdfDocProxy.getPage(answerCurrentPage)
       const answerTextContent = await answerPage.getTextContent()
-      answerPage.cleanup()
       const answerTexts = (answerTextContent.items as any[]).map((item: any) => item.str).join('\n')
 
       // Extract student text
-      const studentPage = await pdfDocProxy.getPage(currentPage)
+      studentPage = await pdfDocProxy.getPage(currentPage)
       const studentViewport = studentPage.getViewport({ scale: 1 })
       const studentTextContent = await studentPage.getTextContent()
       const studentItems = studentTextContent.items as any[]
       const studentTexts = studentItems.map((item: any) => item.str).join('\n')
-      studentPage.cleanup()
 
       // Call AI
       const result = await aiGrade(settings, answerTexts, studentTexts)
@@ -696,6 +716,8 @@ export default function App() {
     } catch (err: any) {
       alert('AI 批改失败: ' + (err.message || '未知错误'))
     } finally {
+      answerPage?.cleanup()
+      studentPage?.cleanup()
       setIsAIGrading(false)
     }
   }, [pdfDocProxy, answerPdfDocProxy, answerCurrentPage, currentPage])
@@ -772,6 +794,13 @@ export default function App() {
     }
   }, [numPages, currentPage])
 
+  // Clamp answerCurrentPage when answerNumPages changes
+  useEffect(() => {
+    if (answerNumPages > 0 && answerCurrentPage > answerNumPages) {
+      setAnswerCurrentPage(answerNumPages)
+    }
+  }, [answerNumPages, answerCurrentPage])
+
   // Auto-save session when state changes
   useEffect(() => {
     if (!pdfBytes) return
@@ -810,7 +839,7 @@ export default function App() {
         <h1 className="text-xl font-bold">PDF Edit</h1>
         <div className="flex gap-2">
           <input ref={fileInputRef} type="file" accept=".pdf,.docx" className="hidden" onChange={handleFileChange} />
-          <input ref={answerInputRef} type="file" accept=".pdf" className="hidden" onChange={handleAnswerFileChange} />
+          <input ref={answerInputRef} type="file" accept=".pdf,.docx" className="hidden" onChange={handleAnswerFileChange} />
           <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">打开 PDF</button>
           <button onClick={handleDownload} disabled={!pdfBytes} className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 disabled:opacity-50 transition">下载</button>
           <button onClick={() => { clearSession(); window.location.reload() }} className="px-4 py-2 bg-red-50 text-red-600 rounded hover:bg-red-100 transition text-sm">清除缓存</button>
@@ -852,7 +881,38 @@ export default function App() {
           <div className="flex flex-1 overflow-hidden">
             {gradeMode ? (
               <>
-                <section className="flex-1 overflow-auto bg-gray-200 p-4 border-r border-gray-300">
+                <section
+                  className={`flex-1 overflow-auto bg-gray-200 p-4 border-r border-gray-300 relative ${isAnswerDragging ? 'bg-blue-50' : ''}`}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setIsAnswerDragging(true)
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setIsAnswerDragging(false)
+                  }}
+                  onDrop={async (e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setIsAnswerDragging(false)
+                    const file = e.dataTransfer.files[0]
+                    if (!file) return
+                    const lowerName = file.name.toLowerCase()
+                    if (lowerName.endsWith('.pdf') || lowerName.endsWith('.docx')) {
+                      await processAnswerFile(file)
+                    }
+                  }}
+                >
+                  {isAnswerDragging && (
+                    <div className="absolute inset-0 bg-blue-500/20 z-50 flex items-center justify-center pointer-events-none">
+                      <div className="bg-white rounded-lg shadow-xl px-8 py-6 text-center">
+                        <p className="text-xl font-bold text-blue-600">释放以上传答案</p>
+                        <p className="text-gray-500 mt-2">支持 PDF、Word 格式</p>
+                      </div>
+                    </div>
+                  )}
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm text-gray-500 font-medium">答案</span>
                     {answerPdfDocProxy && (
@@ -867,8 +927,9 @@ export default function App() {
                     <PdfViewer pdfDoc={answerPdfDocProxy} pageNumber={Math.min(answerCurrentPage, answerNumPages)} scale={scale} activeTool="select" color={color} annotations={[]} onAnnotationsChange={() => {}} editMode="view" textEdits={[]} />
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center gap-3">
-                      <p className="text-gray-400 text-sm">尚未加载答案 PDF</p>
+                      <p className="text-gray-400 text-sm">尚未加载答案</p>
                       <button onClick={() => answerInputRef.current?.click()} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm">加载答案</button>
+                      <p className="text-gray-400 text-xs">或将文件拖拽到此处</p>
                     </div>
                   )}
                 </section>
