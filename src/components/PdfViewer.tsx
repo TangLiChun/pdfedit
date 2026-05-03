@@ -105,17 +105,21 @@ export default function PdfViewer({
           return
         }
 
-        const viewport = page.getViewport({ scale })
+        const dpr = Math.min(window.devicePixelRatio || 1, 2)
+        const cssViewport = page.getViewport({ scale })
+        const renderViewport = page.getViewport({ scale: scale * dpr })
         const canvas = pdfCanvasRef.current!
-        canvas.width = viewport.width
-        canvas.height = viewport.height
-        setPageSize({ width: viewport.width, height: viewport.height })
+        canvas.width = renderViewport.width
+        canvas.height = renderViewport.height
+        canvas.style.width = cssViewport.width + 'px'
+        canvas.style.height = cssViewport.height + 'px'
+        setPageSize({ width: cssViewport.width, height: cssViewport.height })
 
         const ctx = canvas.getContext('2d')!
-        await page.render({ canvasContext: ctx, viewport }).promise
+        await page.render({ canvasContext: ctx, viewport: renderViewport }).promise
 
         if (editMode === 'text' && textLayerRef.current) {
-          await renderTextLayer(page, viewport, gen)
+          await renderTextLayer(page, cssViewport, gen)
         }
 
         page.cleanup()
@@ -134,8 +138,11 @@ export default function PdfViewer({
   useEffect(() => {
     const canvas = annoCanvasRef.current
     if (!canvas || pageSize.width === 0) return
-    canvas.width = pageSize.width
-    canvas.height = pageSize.height
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    canvas.width = pageSize.width * dpr
+    canvas.height = pageSize.height * dpr
+    canvas.style.width = pageSize.width + 'px'
+    canvas.style.height = pageSize.height + 'px'
     drawAnnotations()
   }, [pageSize])
 
@@ -148,6 +155,7 @@ export default function PdfViewer({
     const canvas = annoCanvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')!
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
     annotations.forEach(ann => {
@@ -155,37 +163,37 @@ export default function PdfViewer({
       if (isSelected) {
         ctx.save()
         ctx.shadowColor = 'rgba(59, 130, 246, 0.8)'
-        ctx.shadowBlur = 4
+        ctx.shadowBlur = 4 * dpr
       }
 
       switch (ann.type) {
         case 'rect': {
           ctx.fillStyle = hexToRgba(ann.color, 0.3)
-          ctx.fillRect(ann.x, ann.y, ann.w, ann.h)
+          ctx.fillRect(ann.x * dpr, ann.y * dpr, ann.w * dpr, ann.h * dpr)
           ctx.strokeStyle = ann.color
-          ctx.lineWidth = 2
-          ctx.strokeRect(ann.x, ann.y, ann.w, ann.h)
+          ctx.lineWidth = 2 * dpr
+          ctx.strokeRect(ann.x * dpr, ann.y * dpr, ann.w * dpr, ann.h * dpr)
           break
         }
         case 'arrow': {
-          drawArrow(ctx, ann.x1, ann.y1, ann.x2, ann.y2, ann.color)
+          drawArrow(ctx, ann.x1 * dpr, ann.y1 * dpr, ann.x2 * dpr, ann.y2 * dpr, ann.color, dpr)
           break
         }
         case 'text': {
           ctx.fillStyle = ann.color
-          ctx.font = '20px sans-serif'
-          ctx.fillText(ann.text, ann.x, ann.y + 20)
+          ctx.font = `${20 * dpr}px sans-serif`
+          ctx.fillText(ann.text, ann.x * dpr, ann.y * dpr + 20 * dpr)
           break
         }
         case 'brush': {
           if (ann.points.length < 2) break
           ctx.beginPath()
-          ctx.moveTo(ann.points[0].x, ann.points[0].y)
+          ctx.moveTo(ann.points[0].x * dpr, ann.points[0].y * dpr)
           for (let i = 1; i < ann.points.length; i++) {
-            ctx.lineTo(ann.points[i].x, ann.points[i].y)
+            ctx.lineTo(ann.points[i].x * dpr, ann.points[i].y * dpr)
           }
           ctx.strokeStyle = ann.color
-          ctx.lineWidth = 2
+          ctx.lineWidth = 2 * dpr
           ctx.lineCap = 'round'
           ctx.lineJoin = 'round'
           ctx.stroke()
@@ -199,8 +207,8 @@ export default function PdfViewer({
     })
   }
 
-  const drawArrow = (ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string) => {
-    const headLen = 15
+  const drawArrow = (ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, dpr: number) => {
+    const headLen = 15 * dpr
     const dx = x2 - x1
     const dy = y2 - y1
     const angle = Math.atan2(dy, dx)
@@ -209,7 +217,7 @@ export default function PdfViewer({
     ctx.moveTo(x1, y1)
     ctx.lineTo(x2, y2)
     ctx.strokeStyle = color
-    ctx.lineWidth = 2
+    ctx.lineWidth = 2 * dpr
     ctx.stroke()
 
     ctx.beginPath()
@@ -285,6 +293,7 @@ export default function PdfViewer({
     const canvas = annoCanvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')!
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
 
     if (activeTool === 'select' && selectedId && dragOffsetRef.current) {
       const dx = point.x - dragOffsetRef.current.x
@@ -315,12 +324,12 @@ export default function PdfViewer({
 
       ctx.beginPath()
       const pts = currentPointsRef.current
-      ctx.moveTo(pts[0].x, pts[0].y)
+      ctx.moveTo(pts[0].x * dpr, pts[0].y * dpr)
       for (let i = 1; i < pts.length; i++) {
-        ctx.lineTo(pts[i].x, pts[i].y)
+        ctx.lineTo(pts[i].x * dpr, pts[i].y * dpr)
       }
       ctx.strokeStyle = color
-      ctx.lineWidth = 2
+      ctx.lineWidth = 2 * dpr
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
       ctx.stroke()
@@ -332,17 +341,17 @@ export default function PdfViewer({
       drawAnnotations()
       const start = startPointRef.current
       ctx.fillStyle = hexToRgba(color, 0.3)
-      ctx.fillRect(start.x, start.y, point.x - start.x, point.y - start.y)
+      ctx.fillRect(start.x * dpr, start.y * dpr, (point.x - start.x) * dpr, (point.y - start.y) * dpr)
       ctx.strokeStyle = color
-      ctx.lineWidth = 2
-      ctx.strokeRect(start.x, start.y, point.x - start.x, point.y - start.y)
+      ctx.lineWidth = 2 * dpr
+      ctx.strokeRect(start.x * dpr, start.y * dpr, (point.x - start.x) * dpr, (point.y - start.y) * dpr)
       return
     }
 
     if (activeTool === 'arrow') {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
       drawAnnotations()
-      drawArrow(ctx, startPointRef.current.x, startPointRef.current.y, point.x, point.y, color)
+      drawArrow(ctx, startPointRef.current.x * dpr, startPointRef.current.y * dpr, point.x * dpr, point.y * dpr, color, dpr)
       return
     }
   }

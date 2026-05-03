@@ -935,7 +935,7 @@ export default function App() {
                 </section>
                 <section className="flex-1 overflow-auto bg-gray-200 p-4">
                   <div className="mb-2 text-center text-sm text-gray-500 font-medium">作业</div>
-                  <PdfViewer pdfDoc={pdfDocProxy} pageNumber={currentPage} scale={scale} activeTool={activeTool} color={color} annotations={pageAnnotations[currentPage] || []} onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))} editMode={editMode === 'annotate' ? 'annotate' : 'view'} onTextEdit={handleTextEdit} textEdits={textEdits[currentPage] || []} searchHighlights={currentPageSearchHighlights} />
+                  <PdfViewer pdfDoc={pdfDocProxy} pageNumber={currentPage} scale={scale} activeTool={activeTool} color={color} annotations={pageAnnotations[currentPage] || []} onAnnotationsChange={(anns) => setPageAnnotations(prev => ({ ...prev, [currentPage]: anns }))} editMode={gradeMode ? 'annotate' : editMode} onTextEdit={handleTextEdit} textEdits={textEdits[currentPage] || []} searchHighlights={currentPageSearchHighlights} />
                 </section>
               </>
             ) : (
