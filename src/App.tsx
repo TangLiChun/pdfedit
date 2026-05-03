@@ -268,20 +268,25 @@ export default function App() {
   }, [])
 
   const processFile = useCallback(async (file: File) => {
+    let bytes: Uint8Array
     try {
       if (file.name.toLowerCase().endsWith('.docx')) {
         const arrayBuffer = await file.arrayBuffer()
         const result = await mammoth.extractRawText({ arrayBuffer })
-        const pdfBytes = await createPdfFromText(result.value)
-        await loadPdf(pdfBytes)
+        bytes = await createPdfFromText(result.value)
       } else {
-        const bytes = new Uint8Array(await file.arrayBuffer())
-        await loadPdf(bytes)
+        bytes = new Uint8Array(await file.arrayBuffer())
       }
+    } catch {
+      alert('无法读取此文件，请确认是有效的 PDF 或 Word 文档。')
+      return
+    }
+    try {
+      await loadPdf(bytes)
       setPageAnnotations({})
       setTextEdits({})
     } catch {
-      // Error already alerted in loadPdf or createPdfFromText
+      // Error already alerted in loadPdf
     }
   }, [loadPdf])
 
@@ -314,18 +319,23 @@ export default function App() {
   }, [processFile])
 
   const processAnswerFile = useCallback(async (file: File) => {
+    let bytes: Uint8Array
     try {
       if (file.name.toLowerCase().endsWith('.docx')) {
         const arrayBuffer = await file.arrayBuffer()
         const result = await mammoth.extractRawText({ arrayBuffer })
-        const pdfBytes = await createPdfFromText(result.value)
-        await loadAnswerPdf(pdfBytes)
+        bytes = await createPdfFromText(result.value)
       } else {
-        const bytes = new Uint8Array(await file.arrayBuffer())
-        await loadAnswerPdf(bytes)
+        bytes = new Uint8Array(await file.arrayBuffer())
       }
     } catch {
-      // Error already alerted in loadAnswerPdf or createPdfFromText
+      alert('无法读取此文件，请确认是有效的 PDF 或 Word 文档。')
+      return
+    }
+    try {
+      await loadAnswerPdf(bytes)
+    } catch {
+      // Error already alerted in loadAnswerPdf
     }
   }, [loadAnswerPdf])
 
@@ -886,12 +896,15 @@ export default function App() {
                   onDragOver={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
+                    setIsDragging(false)
                     setIsAnswerDragging(true)
                   }}
                   onDragLeave={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    setIsAnswerDragging(false)
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setIsAnswerDragging(false)
+                    }
                   }}
                   onDrop={async (e) => {
                     e.preventDefault()
